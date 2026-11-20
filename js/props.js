@@ -16,15 +16,18 @@ import { CELL, CEIL_H, WALL_H } from './map.js';
 
 const V = THREE.Vector3, Q = THREE.Quaternion;
 const GRAV = 18;
+const CHAR_MASS = 3;   // a person, for shoving props
 // heights (above the feet) where a character's body is tested against props
-const CHAR_SAMPLES = [0.45, 0.65, 0.85, 1.05, 1.25, 1.45, 1.65];
+// legs included: jumping into a table hits it with your legs (pushes it) instead of sliding over the edge
+const CHAR_SAMPLES = [];
+for (let y = 0.05; y < 1.8; y += 0.06) CHAR_SAMPLES.push(y);   // the whole body, feet to head
 const KICK_SAMPLES = [0.05, 0.2, 0.35];
 const P = CONFIG.PLAYER;
 
 // parts: [cx, cy, cz, hx, hy, hz, yaw?] — box center + half sizes, origin = bottom center of the prop
 export const PROP_TYPES = {
   box:      { mass: 1.2, sound: 'cardboard', mu: 0.6, parts: [[0, 0.28, 0, 0.3, 0.28, 0.28]] },
-  crate:    { mass: 6.0, sound: 'wood', mu: 0.6, parts: [[0, 0.45, 0, 0.45, 0.45, 0.45]] },
+  crate:    { mass: 3.0, sound: 'wood', mu: 0.6, parts: [[0, 0.45, 0, 0.45, 0.45, 0.45]] },
   chair:    { mass: 1.4, sound: 'wood', mu: 0.5, parts: [[0, 0.455, 0, 0.22, 0.03, 0.21], [0, 0.71, 0.2, 0.22, 0.22, 0.025], [-0.19, 0.22, 0, 0.022, 0.22, 0.2], [0.19, 0.22, 0, 0.022, 0.22, 0.2]] },
   table:    { mass: 8.0, sound: 'wood', mu: 0.3, parts: [[0, 0.745, 0, 0.62, 0.025, 0.4], [-0.53, 0.36, 0, 0.03, 0.36, 0.34], [0.53, 0.36, 0, 0.03, 0.36, 0.34]] },
   barrel:   { mass: 2.2, sound: 'metal', mu: 0.45, parts: [[0, 0.45, 0, 0.3, 0.45, 0.3], [0, 0.45, 0, 0.3, 0.45, 0.3, Math.PI / 4]] },
@@ -374,7 +377,7 @@ export class PropSystem {
       if (dx * dx + dz * dz > reach * reach) continue;
       if (ch.y > p.top - 0.02 || ch.y + P.HEIGHT < p.y) continue;
       // low things (bottles, food boxes, mattresses) are walked over and kicked, not blocking
-      const low = p.top - ch.y <= P.STEP_HEIGHT + 0.05;
+      const low = p.h <= P.STEP_HEIGHT + 0.05 && p.top - ch.y <= P.STEP_HEIGHT + 0.05; // the prop itself is low (bottles, mattresses)
       const samples = low ? KICK_SAMPLES : CHAR_SAMPLES;
       let best = 0, nx = 0, nz = 0;
       const bq = new V();
@@ -385,7 +388,7 @@ export class PropSystem {
           const inside = Math.abs(l.x) < part.h.x && Math.abs(l.y) < part.h.y && Math.abs(l.z) < part.h.z;
           l.set(Math.max(-part.h.x, Math.min(part.h.x, l.x)), Math.max(-part.h.y, Math.min(part.h.y, l.y)), Math.max(-part.h.z, Math.min(part.h.z, l.z)));
           this.fromPartLocal(p, part, l, q);
-          if (Math.abs(s.y - q.y) > 0.13) continue; // above / below this part
+          if (Math.abs(s.y - q.y) > 0.04) continue; // above / below this part
           let hx = s.x - q.x, hz = s.z - q.z, dh = Math.hypot(hx, hz);
           let pen;
           if (inside || dh < 1e-4) { hx = ch.x - p.pos.x; hz = ch.z - p.pos.z; dh = Math.hypot(hx, hz) || 1; pen = R * 0.6; }
@@ -394,18 +397,25 @@ export class PropSystem {
         }
       }
       if (best <= 0) continue;
-      if (!low) { ch.x += nx * best * soft; ch.z += nz * best * soft; }
+      // speed going into the prop (before the bump slows you down)
+      const into = -((ch.vx || 0) * nx + (ch.vz || 0) * nz);
+      if (!low) {
+        ch.x += nx * best * soft; ch.z += nz * best * soft;
+        // bumping into furniture takes some of your speed (it goes into pushing it instead)
+        if (soft > 0 && into > 0) { ch.vx += nx * into * 0.55; ch.vz += nz * into * 0.55; }
+      }
       if (push) {
         const dir = t4.set(-nx, 0, -nz);
         // push point pulled a bit toward the center of mass: tall things still tip, tables mostly slide
         const r = new V().copy(bq).sub(p.pos);
         r.y *= 0.55;
         const vp = this.pointVel(p, r, new V()).dot(dir);
-        const chv = Math.max(0, (ch.vx || 0) * dir.x + (ch.vz || 0) * dir.z);
-        const want = low ? Math.min(chv * 1.2, 6) + best * 4 : Math.min(chv * 1.05, 3.5) + best * 6;
+        const chv = Math.max(0, into);
+        const want = low ? Math.min(chv * 1.2, 6) + best * 4 : Math.min(chv * 1.05, 5) + best * 6;
         if (vp < want) {
           const k = this.kAlong(p, r, dir);
-          const j = Math.min((want - vp) / k, 55 * dt);
+          // steady pushing is limited, but a running/jumping body slam transfers its momentum
+          const j = Math.min((want - vp) / k, Math.max(55 * dt, into * CHAR_MASS * 0.45));
           this.applyImpulse(p, r, dir.multiplyScalar(j));
           this.wake(p);
         }

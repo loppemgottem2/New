@@ -127,7 +127,8 @@ export function moveCharacter(ch, input, dt, map) {
     accelerate(ch, wx, wz, Math.min(wishSpeed, P.AIR_WISH_CAP), P.AIR_ACCEL, dt);
   }
 
-  if (input.jump && ch.onGround) {
+  // short cooldown after landing so you can't instantly jump again (and climb things by double-hopping)
+  if (input.jump && ch.onGround && (ch.groundT || 0) >= P.JUMP_COOLDOWN) {
     ch.vy = P.JUMP_SPEED; ch.onGround = false; ch.jumped = true;
     // small forward boost when jumping while running (momentum)
     const sp = Math.hypot(ch.vx, ch.vz);
@@ -159,7 +160,10 @@ export function moveCharacter(ch, input, dt, map) {
   // Vertical
   const prevY = ch.y;
   ch.y += ch.vy * dt;
-  const g = groundHeight(map, ch.x, ch.z, r * 0.85, Math.max(prevY, ch.y) + P.STEP_HEIGHT);
+  // auto step-up onto ledges only when walking or falling, never while rising in a jump
+  // (so jumping into a table bumps/pushes it instead of snapping you up on top)
+  const rising = !ch.onGround && ch.vy > 0;
+  const g = groundHeight(map, ch.x, ch.z, r * 0.85, rising ? ch.y + 0.02 : Math.max(prevY, ch.y) + P.STEP_HEIGHT);
   if (ch.y <= g) {
     if (!ch.onGround && ch.vy < -4) ch.landed = -ch.vy;
     ch.y = g; ch.vy = 0; ch.onGround = true;
@@ -176,8 +180,8 @@ export function moveCharacter(ch, input, dt, map) {
 
 // Keep a character out of props (per-part hitboxes). `amount` 0..1 = how much of the
 // overlap to fix this frame (soft for humans so the host can push the prop).
-export function pushOutOfProps(ch, map, amount = 1) {
-  map.propSys?.collideChar(ch, amount, false);
+export function pushOutOfProps(ch, map, amount = 1, push = false) {
+  map.propSys?.collideChar(ch, amount, push);
 }
 
 // Push overlapping characters apart (soft). `movable(c)` says who may be moved.
