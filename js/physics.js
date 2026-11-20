@@ -159,12 +159,14 @@ export function moveCharacter(ch, input, dt, map) {
 
   // Vertical
   const prevY = ch.y;
+  const wasGround = ch.onGround;
   ch.y += ch.vy * dt;
   // auto step-up onto ledges only when walking or falling, never while rising in a jump
   // (so jumping into a table bumps/pushes it instead of snapping you up on top)
-  // No auto step-up at all (walking, running or jumping): you only land on a surface
-  // that your feet were already above. To get onto a table / crate you must jump.
-  const g = groundHeight(map, ch.x, ch.z, r * 0.85, prevY + 0.02);
+  // Step-up: only a tiny one (WALK_STEP, e.g. onto a mattress) while walking/running on the
+  // ground. In the air you only land on surfaces your feet were already above, so to get
+  // onto a table or crate you must jump.
+  const g = groundHeight(map, ch.x, ch.z, r * 0.85, prevY + (wasGround ? P.WALK_STEP : 0.02));
   if (ch.y <= g) {
     if (!ch.onGround && ch.vy < -4) ch.landed = -ch.vy;
     ch.y = g; ch.vy = 0; ch.onGround = true;

@@ -377,6 +377,8 @@ export class PropSystem {
       if (dx * dx + dz * dz > reach * reach) continue;
       if (ch.y > p.top - 0.02 || ch.y + P.HEIGHT < p.y) continue;
       // low things (bottles, food boxes, mattresses) are walked over and kicked, not blocking
+      // walking onto something very low (a mattress) is a small step up, not a wall
+      if (ch.onGround && p.top - ch.y <= P.WALK_STEP + 0.01 && p.mass >= 0.6) continue;
       const low = p.mass < 0.6; // tiny things (bottles, takeout boxes) get kicked; everything else blocks and is pushed
       const samples = low ? KICK_SAMPLES : CHAR_SAMPLES;
       let best = 0, nx = 0, nz = 0;

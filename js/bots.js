@@ -21,6 +21,7 @@ const W = CONFIG.WEAPONS;
 const weaponOf = (c) => (!c.equipped ? 0 : c.hasKnife ? 1 : c.hasGun ? 2 : 0);
 
 export function initBrain(c) {
+  const skill = Math.random(); // 0 = clumsy, 1 = expert (re-rolled every round)
   return {
     state: 'wander',
     path: null, pi: 0, goal: null, repathT: 0,
@@ -35,8 +36,9 @@ export function initBrain(c) {
     lastPos: { x: c.x, z: c.z }, stuckT: 0, stuckCount: 0, jump: false,
     seenCorpses: new Set(),
     lookT: rand(1, 3), lookYaw: c.yaw,
-    collector: Math.random() < B.COLLECT_PARTS_CHANCE,
-    skill: Math.random(),            // 0 = clumsy, 1 = expert (re-rolled every round)
+    collector: Math.random() < 0.2 + 0.75 * skill,   // smarter bystanders care more about gun parts
+    skill,
+    scanT: 0, scanOff: 0,
     blockT: 0, blockCount: 0, blockCalm: 0,
     hideWait: 0,
     brave: Math.random() < B.BRAVERY,
@@ -178,6 +180,23 @@ function perceive(game, c, b) {
       b.fear = 1;
     }
     if (b.threatId === o.id) b.threat = { x: o.x, z: o.z };
+    // skilled gun holders get suspicious of anyone walking straight at someone else,
+    // the closer they get the more suspicious (capped below "shoot" level)
+    if (c.hasGun && c.role !== 'murderer' && b.skill > 0.35) {
+      const sp = Math.hypot(o.vx || 0, o.vz || 0);
+      if (sp > 0.8) {
+        for (const v of game.chars.values()) {
+          if (v === o || !v.alive) continue;
+          const dx = v.x - o.x, dz = v.z - o.z, dd = Math.hypot(dx, dz);
+          if (dd > 5 || dd < 0.3) continue;
+          const toward = ((o.vx || 0) * dx + (o.vz || 0) * dz) / (sp * dd);
+          if (toward < 0.7) continue;
+          const cur = b.susp.get(o.id) || 0;
+          const add = b.skill * (5 - dd) * 2.2 * I * 5 * (dd < 1.6 ? 2 : 1);
+          if (cur < 75) b.susp.set(o.id, Math.min(75, cur + add));
+        }
+      }
+    }
   }
   // dead bodies
   if (c.role !== 'murderer') {
@@ -192,8 +211,21 @@ function perceive(game, c, b) {
       if (fresh) {
         for (const o of game.chars.values()) {
           if (o === c || !o.alive) continue;
-          if (Math.hypot(o.x - k.x, o.z - k.z) < 5 && b.seenAt.get(o.id) === now) addSusp(b, o.id, B.CORPSE_SUSPICION);
+          // skilled gun holders weigh "who was near the body" more heavily
+          const weight = c.hasGun ? 0.6 + 0.8 * b.skill : 1;
+          if (Math.hypot(o.x - k.x, o.z - k.z) < 5 && b.seenAt.get(o.id) === now) addSusp(b, o.id, B.CORPSE_SUSPICION * weight);
         }
+      }
+    }
+  }
+  // anyone lingering right next to a (recent) body keeps looking worse to a skilled gun holder
+  if (c.hasGun && c.role !== 'murderer' && b.skill > 0.4) {
+    for (const k of game.corpses) {
+      if (game.time - k.t > 40 || !b.seenCorpses.has(k.id)) continue;
+      for (const o of game.chars.values()) {
+        if (o === c || !o.alive || b.seenAt.get(o.id) !== now) continue;
+        const d = Math.hypot(o.x - k.x, o.z - k.z);
+        if (d < 3) { const cur = b.susp.get(o.id) || 0; if (cur < 70) b.susp.set(o.id, Math.min(70, cur + (3 - d) * 3 * b.skill * I * 5)); }
       }
     }
   }
@@ -283,7 +315,7 @@ function thinkInnocent(game, c, b, active) {
   // ---- collect gun parts ----
   if (active && b.collector && game.craftedBy == null && !c.hasGun && c.role !== 'murderer') {
     const set = game.partsCollected.get(c.id);
-    let best = -1, bd = B.COLLECT_PARTS_RANGE;
+    let best = -1, bd = 12 + 34 * b.skill;   // smart bots will cross the map for parts
     game.partSpots.forEach((s, k) => {
       if (set && set.has(k)) return;
       const d = Math.hypot(s.x - c.x, s.z - c.z);
@@ -295,13 +327,77 @@ function thinkInnocent(game, c, b, active) {
         setPath(game, c, b, s.x, s.z);
         b.state = 'collect';
       }
-      b.run = false;
+      b.run = b.skill > 0.6 && c.stamina > 30;   // smart bots hurry to the parts
       return;
     }
   }
   if (b.state === 'collect') b.state = 'wander';
 
+  // ---- personal space: smart bystanders (and especially gun holders) don't let anyone get too close ----
+  if (active && c.role !== 'murderer') {
+    const armed = c.hasGun;
+    const wantSpace = armed ? b.skill > 0.35 : b.skill > 0.55;
+    if (wantSpace) {
+      const R = armed ? 2.6 + 2.2 * b.skill : 1.8 + 1.2 * b.skill;
+      let near = null, nd = R;
+      for (const o of game.chars.values()) {
+        if (o === c || !o.alive) continue;
+        const d = Math.hypot(o.x - c.x, o.z - c.z);
+        if (d < nd) { nd = d; near = o; }
+      }
+      if (near && b.state !== 'space') {
+        // step back to a spot well away from them (but not off into nowhere)
+        let best = null, bs = -Infinity;
+        for (let k = 0; k < 10; k++) {
+          const p = game.nav.randomPointNear(c.x, c.z, 2.5, 7, 6);
+          const s2 = Math.hypot(p.x - near.x, p.z - near.z) - Math.hypot(p.x - c.x, p.z - c.z) * 0.3;
+          if (s2 > bs) { bs = s2; best = p; }
+        }
+        if (best) { setPath(game, c, b, best.x, best.z); b.state = 'space'; b.run = false; return; }
+      }
+      if (b.state === 'space' && b.path) return;
+      if (b.state === 'space') b.state = 'wander';
+    }
+  }
+
   wanderThink(game, c, b);
+}
+
+// Where should a calm bot walk to next?
+//  - smart gun holders: open spots where they can see lots of people
+//  - smart bystanders: close to the main group of people (safety in numbers)
+//  - everyone else: anywhere
+function pickWanderGoal(game, c, b) {
+  const nav = game.nav;
+  if (c.role !== 'murderer' && c.hasGun && b.skill > 0.45 && Math.random() < b.skill) {
+    let best = null, bs = -Infinity;
+    for (let k = 0; k < 10; k++) {
+      const p = nav.randomPointNear(c.x, c.z, 5, 30, 6);
+      let seen = 0;
+      for (const o of game.chars.values()) {
+        if (o === c || !o.alive) continue;
+        const d = Math.hypot(o.x - p.x, o.z - p.z);
+        if (d < 3.5) { seen -= 1; continue; }            // not right on top of people
+        if (d < 30 && hasLOS(game.map, p.x, 1.6, p.z, o.x, o.y + 1.2, o.z)) seen++;
+      }
+      const open = game.map.isOutdoor(p.x, p.z) ? 1.5 : 0;
+      const sc = seen * 3 + open - Math.hypot(p.x - c.x, p.z - c.z) * 0.05;
+      if (sc > bs) { bs = sc; best = p; }
+    }
+    if (best) return best;
+  }
+  if (c.role !== 'murderer' && b.skill > 0.4 && Math.random() < b.skill) {
+    let sx = 0, sz = 0, n = 0;
+    for (const o of game.chars.values()) { if (o === c || !o.alive) continue; sx += o.x; sz += o.z; n++; }
+    if (n >= 2) {
+      // centre of the biggest crowd: average of people near the overall centre
+      const cx = sx / n, cz = sz / n;
+      let gx = 0, gz = 0, m = 0;
+      for (const o of game.chars.values()) { if (o === c || !o.alive) continue; if (Math.hypot(o.x - cx, o.z - cz) < 25) { gx += o.x; gz += o.z; m++; } }
+      if (m) { const p = nav.randomPointNear(gx / m, gz / m, 3, 9, 15); return p; }
+    }
+  }
+  return nav.randomPointNear(c.x, c.z, 8, 40);
 }
 
 function wanderThink(game, c, b) {
@@ -310,9 +406,9 @@ function wanderThink(game, c, b) {
   if (!b.path) {
     b.waitT -= B.THINK_INTERVAL;
     if (b.waitT <= 0) {
-      const p = game.nav.randomPointNear(c.x, c.z, 8, 40);
+      const p = pickWanderGoal(game, c, b);
       setPath(game, c, b, p.x, p.z);
-      b.waitT = rand(0.5, 4);
+      b.waitT = rand(0.5, 4) * (1.2 - 0.6 * b.skill);
     }
   }
 }
@@ -526,7 +622,8 @@ function act(game, c, b, dt) {
     if (!b.path) {
       // idle: look around
       b.lookT -= dt;
-      if (b.lookT <= 0) { b.lookYaw = c.yaw + rand(-1.6, 1.6); b.lookT = rand(1, 3); }
+      const alert = c.hasGun && c.role !== 'murderer' ? b.skill : b.skill * 0.5;
+      if (b.lookT <= 0) { b.lookYaw = c.yaw + rand(-1.6, 1.6) * (1 + alert * 0.8); b.lookT = rand(1, 3) * (1 - 0.7 * alert); }
       c.yaw = turnToward(c.yaw, b.lookYaw, 2.5 * dt);
       c.pitch *= 0.95;
     }
@@ -593,7 +690,12 @@ function act(game, c, b, dt) {
     }
     // face where we walk (unless aiming)
     if (b.state !== 'engage' && b.state !== 'attack') {
-      c.yaw = turnToward(c.yaw, yawTo(mx, mz), 7 * dt);
+      // alert gun holders glance left/right while walking
+      if (c.hasGun && c.role !== 'murderer' && b.skill > 0.5) {
+        b.scanT -= dt;
+        if (b.scanT <= -rand(0.8, 2.5) * (1.4 - b.skill)) { b.scanT = rand(0.4, 0.8); b.scanOff = rand(0.7, 1.3) * (Math.random() < 0.5 ? -1 : 1); }
+      }
+      c.yaw = turnToward(c.yaw, yawTo(mx, mz) + (b.scanT > 0 ? b.scanOff : 0), 7 * dt);
       c.pitch *= 0.9;
     }
   }
