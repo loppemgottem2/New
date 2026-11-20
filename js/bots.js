@@ -397,7 +397,8 @@ function thinkMurderer(game, c, b) {
   for (const o of game.chars.values()) {
     if (o === c || o === t || !o.alive || weaponOf(o) === 2) continue;
     const od = Math.hypot(o.x - c.x, o.z - c.z);
-    if (od < 9 && od < d * 0.55 && hasLOS(game.map, c.x, c.y + P.EYE, c.z, o.x, o.y + 1.2, o.z)) {
+    // smarter murderers notice the better opportunity much more often
+    if (od < 9 && od < d * 0.55 && Math.random() < b.skill * b.skill * 0.6 && hasLOS(game.map, c.x, c.y + P.EYE, c.z, o.x, o.y + 1.2, o.z)) {
       t = o; d = od; b.targetId = o.id; b.frustration *= 0.5;
       break;
     }
@@ -409,7 +410,9 @@ function thinkMurderer(game, c, b) {
   const seeT = hasLOS(game.map, c.x, c.y + P.EYE, c.z, t.x, t.y + 1.2, t.z);
 
   // sometimes give up completely and go hide behind a wall / somewhere far, then try again later
-  const giveUp = (b.frustration > 0.9 && Math.random() < 0.25 * I) || (wit >= 2 && d > 4 && Math.random() < 0.35 * I) || Math.random() < 0.02 * I;
+  // giving up / hiding happens more for clumsy murderers (x1.6) than skilled ones (x0.3)
+  const nerves = 1.6 - 1.3 * b.skill;
+  const giveUp = (b.frustration > 0.9 && Math.random() < 0.25 * nerves * I) || (wit >= 2 && d > 4 && Math.random() < 0.35 * nerves * I) || Math.random() < 0.02 * nerves * I;
   if (giveUp) {
     const spot = hideSpot(game, c, t);
     setPath(game, c, b, spot.x, spot.z);

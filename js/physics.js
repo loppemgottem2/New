@@ -9,7 +9,7 @@ const P = CONFIG.PLAYER;
 //  the character can step onto.
 // ---------------------------------------------------------------------
 export function resolveWalls(map, pos, r, feetY) {
-  const maxH = feetY + P.STEP_HEIGHT;
+  const maxH = feetY + 0.02; // no auto step-up: anything higher than your feet blocks you
   for (let iter = 0; iter < 3; iter++) {
     let moved = false;
     const cx0 = Math.floor((pos.x - r) / CELL), cx1 = Math.floor((pos.x + r) / CELL);
@@ -162,12 +162,13 @@ export function moveCharacter(ch, input, dt, map) {
   ch.y += ch.vy * dt;
   // auto step-up onto ledges only when walking or falling, never while rising in a jump
   // (so jumping into a table bumps/pushes it instead of snapping you up on top)
-  const rising = !ch.onGround && ch.vy > 0;
-  const g = groundHeight(map, ch.x, ch.z, r * 0.85, rising ? ch.y + 0.02 : Math.max(prevY, ch.y) + P.STEP_HEIGHT);
+  // No auto step-up at all (walking, running or jumping): you only land on a surface
+  // that your feet were already above. To get onto a table / crate you must jump.
+  const g = groundHeight(map, ch.x, ch.z, r * 0.85, prevY + 0.02);
   if (ch.y <= g) {
     if (!ch.onGround && ch.vy < -4) ch.landed = -ch.vy;
     ch.y = g; ch.vy = 0; ch.onGround = true;
-  } else if (ch.onGround && ch.vy <= 0 && ch.y - g < P.STEP_HEIGHT) {
+  } else if (ch.onGround && ch.vy <= 0 && ch.y - g < 0.05) {
     ch.y = g; ch.vy = 0; // walk down small steps smoothly
   } else {
     ch.onGround = false;
