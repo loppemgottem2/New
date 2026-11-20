@@ -128,7 +128,7 @@ export function moveCharacter(ch, input, dt, map) {
   }
 
   // short cooldown after landing so you can't instantly jump again (and climb things by double-hopping)
-  if (input.jump && ch.onGround && (ch.groundT || 0) >= P.JUMP_COOLDOWN) {
+  if (input.jump && ch.onGround) {
     ch.vy = P.JUMP_SPEED; ch.onGround = false; ch.jumped = true;
     // small forward boost when jumping while running (momentum)
     const sp = Math.hypot(ch.vx, ch.vz);
