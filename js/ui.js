@@ -104,7 +104,7 @@ export class UI {
     this._set('hud-timer', ph);
 
     // identity panel (bottom-left, colored like your clothes)
-    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.hasGun ? 'Sheriff' : '';
+    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.role === 'none' ? '' : s.hasGun ? 'Sheriff' : 'Bystander';
     this._set('hud-name', me.nick);
     this._set('hud-role', roleTxt);
     const col = me.alive ? textColor(me.color) : '#888';

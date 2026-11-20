@@ -10,7 +10,8 @@
 //   PROPS (movable physics objects)
 //            B  cardboard box      C  wooden crate      K  chair
 //            T  table              X  barrel             M  mattress
-//            L  floor lamp         b  beer bottle
+//            L  floor lamp         b  beer bottle        U  trash can
+//            f  takeout food boxes  p  pile of beer bottles   m  stack of mattresses
 //   MARKERS  S  spawn point        G  gun part spot
 //  Markers / props / solid furniture take the floor type of their neighbours.
 //  Indoor floors get a ceiling with lights automatically (every 3rd cell).
@@ -46,22 +47,22 @@ export const LAYOUT = [
   '##................................................S.......##',
   '##........................................................##',
   '#######...#######....#######....#######....######...########',
-  '##.......G......#....#oooooooaaooooooo#....#~~~~~~~G~~~~~~##',
-  '##.SKKK...KKK...#....#ooooooSaaGoooooo#....#~WW~b~~~L~~~~B##',
-  '##..............#....#oooooooaaooooooo#....#~~K~~S~M~~~~~~##',
-  '##...P......P...#..G.#ooKTKooaaooKTKoo#....#~~~P~~~~~bP~~~##',
-  '##......T.S.....#....#oooooooaaSoooooo#....#L~~~~b~~~~~~~~##',
-  '##..............#....#oooooooaaooooooo#....#~M~~~~~~b~~~~G##',
-  '##...........S........oooooooaaooooooo......~~b~~~T~~~~~~~##',
-  '##....................aaaaaaaaaaaaaaaa......~~~~~~~~~~~K~~##',
-  '##....WWWWW...........aGaaaaaaaaaaaaaa......~~~b~~~~~~~WW~##',
-  '##....................oooooooaaooooooo......b~~~~~L~~~~~~b##',
-  '##G.............#....#oooooooaaooooooS#....#~~~~~~~~b~~~~~##',
-  '##..............#....#oooooooaaooooooo#....#G~~~~~~~~~~b~~##',
-  '##...P......P...#....#ooKTKooaaooKTKoo#....#~~~P~~b~~~P~~L##',
-  '##..............#....#oooooooaaooooooo#.G..#~b~~~~~K~~~~M~##',
-  '##..KKK...KKK...#....#oSoooooaaooooooG#....#~~M~~~~~SB~~~~##',
-  '##.............G#....#oooooooaaooooooo#....#B~~~L~~~~~~~~~##',
+  '##.......G......#....#oooooooaaooooooo#....#~~~~U~~G~~~~~~##',
+  '##.SKKK...KKK...#....#ooooooSaaGoooooo#....#~WW~~~LM~~~~m~##',
+  '##..............#....#oooooooaaooooooo#....#~~K~~S~~~f~~~~##',
+  '##...P......P...#..G.#ooKTKooaaooKTKoo#....#~~~P~~~~p~P~~~##',
+  '##......T.S.....#....#oooooooaaSoooooo#....#U~~~~~~~~~~~~L##',
+  '##..............#....#oooooooaaooooooo#....#~S~~~~~~~~~~MG##',
+  '##...........S........oooooooaaooooooo......~~~~b~~~~~~p~~##',
+  '##....................aaaaaaaaaaaaaaaa......~~~~~~T~~~~~~f##',
+  '##....WWWWW...........aGaaaaaaaaaaaaaa......~~~~~b~f~~~~S~##',
+  '##....................oooooooaaooooooo......~~~~~~b~~~~WW~##',
+  '##G.............#....#oooooooaaooooooS#....#L~~~~~~~~b~~~~##',
+  '##..............#....#oooooooaaooooooo#....#GM~~~~~~~~~~~~##',
+  '##...P......P...#....#ooKTKooaaooKTKoo#....#~~~P~~~~~~P~~~##',
+  '##..............#....#oooooooaaooooooo#.G..#~~p~~~~~~~~~~U##',
+  '##..KKK...KKK...#....#oSoooooaaooooooG#....#~f~~~b~KS~~~~~##',
+  '##.............G#....#oooooooaaooooooo#....#~~~~~~~~U~~~~~##',
   '#######...#######....#######....#######....######...########',
   '##........................................................##',
   '##............................S...........................##',
@@ -92,7 +93,7 @@ const SOLID = { '#': [K.WALL, WALL_H], 'P': [K.PILLAR, WALL_H], 'Q': [K.SHELF, 2
 const FLOOR_CH = { '.': 'tile', ',': 'wood', ';': 'carpet', '_': 'concrete', 'o': 'grass', 'a': 'asphalt', '~': 'dirty' };
 const FLOOR_LIST = ['tile', 'wood', 'carpet', 'concrete', 'grass', 'asphalt', 'dirty'];
 const OUTDOOR = new Set(['grass', 'asphalt']);
-export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel', M: 'mattress', L: 'lamp', b: 'bottle' };
+export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel', M: 'mattress', L: 'lamp', b: 'bottle', U: 'trashcan', f: 'takeout', p: 'bottle', m: 'mattress' };
 export const ROOF_T = 0.55;   // thickness of the concrete roof slab above the ceilings
 
 // ---- lighting constants (baked into vertex colors) ----
@@ -158,8 +159,23 @@ export class GameMap {
           }
         }
         const messy = f === 'dirty';
-        const tip = type === 'bottle' ? hash2(x + 7, z) < 0.75 : messy && type === 'chair' && hash2(z, x + 3) < 0.6;
-        this.propSpawns.push({ type, x: cx + (hash2(x, z + 9) - 0.5) * (messy ? 0.8 : 0.1), z: cz + (hash2(x + 9, z) - 0.5) * (messy ? 0.8 : 0.1), yaw: messy ? hash2(x * 3, z) * 6.28 : yaw, tip });
+        const jit = (k) => (hash2(x * 7 + k, z * 3 + k) - 0.5);
+        if (ch === 'p') {
+          // a pile of bottles: some standing, most lying around
+          for (let k = 0; k < 7; k++) {
+            const a = k * 2.4 + jit(k) * 2, r = k === 0 ? 0 : 0.18 + (k % 3) * 0.12;
+            this.propSpawns.push({ type: 'bottle', x: cx + Math.cos(a) * r, z: cz + Math.sin(a) * r, yaw: jit(k + 9) * 6.28, tip: k > 1 });
+          }
+        } else if (ch === 'm') {
+          // stack of old mattresses (they get stacked on top of each other when spawned)
+          for (let k = 0; k < 3; k++) this.propSpawns.push({ type: 'mattress', x: cx + jit(k) * 0.2, z: cz + jit(k + 5) * 0.2, yaw: yaw + jit(k + 2) * 0.4, tip: false });
+        } else if (ch === 'f') {
+          this.propSpawns.push({ type: 'takeout', x: cx - 0.15, z: cz + jit(1) * 0.3, yaw: jit(2) * 6.28, tip: false });
+          this.propSpawns.push({ type: 'takeout', x: cx + 0.2, z: cz + jit(3) * 0.3, yaw: jit(4) * 6.28, tip: true });
+        } else {
+          const tip = type === 'bottle' ? hash2(x + 7, z) < 0.75 : messy && type === 'chair' && hash2(z, x + 3) < 0.6;
+          this.propSpawns.push({ type, x: cx + jit(1) * (messy ? 0.5 : 0.1), z: cz + jit(2) * (messy ? 0.5 : 0.1), yaw: messy ? hash2(x * 3, z) * 6.28 : yaw, tip });
+        }
       }
     }
     // ceiling lights
@@ -300,7 +316,7 @@ export class GameMap {
   dirtAt(px, py, pz, isWall, nx = 0, nz = 0) {
     const u = px / this.worldW, v = pz / this.worldD;
     let d = 1 - Math.max(0, fbm(u, v, 12, 3, 901) - 0.5) * 0.7;
-    if (this.floorTypeAt(px + nx * 0.4, pz + nz * 0.4) === 'dirty') d *= 0.62 + fbm(u * 3, v * 3 + py * 0.05, 16, 3, 903) * 0.38;
+    if (this.floorTypeAt(px + nx * 0.4, pz + nz * 0.4) === 'dirty') d *= 0.8 + fbm(u * 3, v * 3 + py * 0.05, 16, 3, 903) * 0.2;
     if (isWall) {
       const s = fbm(u + v, py / 24, 16, 3, 902);
       d *= 1 - (1 - Math.min(1, py / 1.6)) * 0.28 * s * 2;     // grime near the floor
@@ -363,6 +379,7 @@ export class GameMap {
     const W = this.w, H = this.h;
     const idx = (x, z) => z * W + x;
     const trimRoof = [];
+    const graffitiSpots = [];
 
     // ---- floors & ceilings (greedy rectangles, subdivided every 1 m) ----
     const rects = (pred) => {
@@ -442,11 +459,11 @@ export class GameMap {
         const top = Math.min(h, nOut ? WALL_H : CEIL_H);
         let key, map, tsz = 2;
         if (kind === K.WALL) {
-          if (nFloor === 'dirty') { key = 'wall-graffiti'; map = T.wallGraffiti; tsz = 4; }
-          else if (nOut || nFloor === 'concrete') { key = 'wall-concrete'; map = T.wallConcrete; }
+          if (nOut || nFloor === 'concrete') { key = 'wall-concrete'; map = T.wallConcrete; }
+          else if (nFloor === 'dirty') { key = 'wall-painted'; map = T.wallPainted; }
           else { key = 'wall-painted'; map = T.wallPainted; }
         } else if (kind === K.PILLAR) { key = 'pillar'; map = T.pillar; tsz = 6; }
-        else if (kind === K.SHELF) { key = 'shelf'; map = T.shelf; tsz = 2.2; }
+        else if (kind === K.SHELF) { if (nFloor === 'carpet') { key = 'shelf-books'; map = T.shelfBooks; } else { key = 'shelf'; map = T.shelf; } tsz = 2.2; }
         else { key = 'counter'; map = T.counter; tsz = 1; }
         // the face lies on the cell edge facing the neighbour
         const ex = dx > 0 ? (x + 1) * CELL : dx < 0 ? x * CELL : null;
@@ -455,6 +472,7 @@ export class GameMap {
         if (ex !== null) { a = [ex, z * CELL]; c2 = [ex, (z + 1) * CELL]; if (dx > 0) [a, c2] = [c2, a]; }
         else { a = [(x + 1) * CELL, ez]; c2 = [x * CELL, ez]; if (dz > 0) [a, c2] = [c2, a]; }
         const isPillarOrShelf = kind !== K.WALL;
+        if (kind === K.WALL && nFloor === 'dirty' && nh === 0) graffitiSpots.push([a, c2, dx, dz]);
         B(key, map).wall(a, c2, nh, top, dx, dz, tsz, kind === K.PILLAR ? 6 : 1);
         // baseboard + crown trim along room walls (adds real depth)
         if (kind === K.WALL && !nOut && nh === 0) {
@@ -473,6 +491,16 @@ export class GameMap {
     }
     onProgress?.(0.85);
 
+    // ---- graffiti: only a handful of spray-painted tags on the trashed room's walls ----
+    graffitiSpots.forEach(([a, c2, dx, dz], i) => {
+      if (hash2(i * 13 + 5, 77) > 0.3) return;
+      const k = Math.floor(hash2(i, 31) * T.graffiti.length);
+      const b = B('graffiti-' + k, T.graffiti[k]);
+      const mx = (a[0] + c2[0]) / 2, mz = (a[1] + c2[1]) / 2, ux = (c2[0] - a[0]) / 2, uz = (c2[1] - a[1]) / 2;
+      const w = 0.75 + hash2(i, 3) * 0.2, y0 = 0.6 + hash2(i, 5) * 0.8, y1 = y0 + 1.1 + hash2(i, 9) * 0.4, off = 0.012;
+      b.decal([mx - ux * w + dx * off, mz - uz * w + dz * off], [mx + ux * w + dx * off, mz + uz * w + dz * off], y0, y1, dx, dz);
+    });
+
     // ---- light fixtures ----
     {
       const fx = B('fixture', null);
@@ -486,7 +514,9 @@ export class GameMap {
     }
 
     for (const [key, { b, map }] of builders) {
-      const mat = new THREE.MeshBasicMaterial({ map, vertexColors: true, side: key === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide });
+      const decal = key.startsWith('graffiti');
+      const mat = new THREE.MeshBasicMaterial({ map, vertexColors: true, side: key === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide,
+        transparent: decal, depthWrite: !decal, polygonOffset: decal, polygonOffsetFactor: -2 });
       const mesh = new THREE.Mesh(b.geometry(), mat);
       mesh.name = key;
       group.add(mesh);
@@ -539,6 +569,16 @@ class Builder {
       const p = base + j * (cols + 1) + i, q = p + 1, r = p + cols + 1, s = r + 1;
       this.idx.push(p, q, s, p, s, r);
     }
+  }
+  // a picture glued flat on a wall (graffiti decals), uv 0..1
+  decal(a, c, y0, y1, nx, nz) {
+    const base = this.pos.length / 3;
+    for (const [p, y, u, v] of [[a, y0, 0, 0], [c, y0, 1, 0], [c, y1, 1, 1], [a, y1, 0, 1]]) {
+      this.pos.push(p[0], y, p[1]); this.nor.push(nx, 0, nz); this.uv.push(u, v);
+      const col = this.map.bakeColor(p[0] - nx * 0.05, y, p[1] - nz * 0.05, nx, 0, nz, true);
+      this.col.push(col[0], col[1], col[2]);
+    }
+    this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
   // thin strip sticking out of a wall face (baseboard, trim)
   box(a, c, nx, nz, y0, y1, depth, color) {

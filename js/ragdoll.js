@@ -26,6 +26,46 @@ const MIN_LINKS = [
   [HEAD, HAL, 0.1], [HEAD, HAR, 0.1],
 ];
 
+// Body segments as capsules: [joint a, joint b, radius]
+const SEGS = [
+  [SHL, ELL, 0.055], [ELL, HAL, 0.05], [SHR, ELR, 0.055], [ELR, HAR, 0.05],   // 0-3 arms
+  [HIPL, KNL, 0.07], [KNL, FTL, 0.055], [HIPR, KNR, 0.07], [KNR, FTR, 0.055], // 4-7 legs
+  [NECK, PELVIS, 0.13], [HEAD, HEAD, 0.14],                                    // 8 torso, 9 head
+];
+// pairs that should never overlap (attached neighbours are left out)
+const SELF_PAIRS = [];
+for (let i = 0; i < SEGS.length; i++) for (let j = i + 1; j < SEGS.length; j++) {
+  const A = SEGS[i], B = SEGS[j];
+  if (A[0] === B[0] || A[0] === B[1] || A[1] === B[0] || A[1] === B[1]) continue; // share a joint
+  if (i === 8 && (j === 9 || [0, 2, 4, 6].includes(i) )) continue;
+  if (j === 8 && [0, 2, 4, 6].includes(i)) continue;   // upper arms / thighs are attached to the torso
+  if ((i === 4 && j === 6)) continue;                    // thighs start right next to each other
+  SELF_PAIRS.push([i, j]);
+}
+// closest points between segments p0-p1 and q0-q1 -> [s, t] in 0..1
+function closestST(p0, p1, q0, q1) {
+  const d1x = p1.x - p0.x, d1y = p1.y - p0.y, d1z = p1.z - p0.z;
+  const d2x = q1.x - q0.x, d2y = q1.y - q0.y, d2z = q1.z - q0.z;
+  const rx = p0.x - q0.x, ry = p0.y - q0.y, rz = p0.z - q0.z;
+  const a = d1x * d1x + d1y * d1y + d1z * d1z, e = d2x * d2x + d2y * d2y + d2z * d2z;
+  const f = d2x * rx + d2y * ry + d2z * rz;
+  let s, t;
+  if (a < 1e-9 && e < 1e-9) return [0, 0];
+  if (a < 1e-9) { s = 0; t = Math.min(1, Math.max(0, f / e)); }
+  else {
+    const c = d1x * rx + d1y * ry + d1z * rz;
+    if (e < 1e-9) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
+    else {
+      const b = d1x * d2x + d1y * d2y + d1z * d2z, den = a * e - b * b;
+      s = den > 1e-9 ? Math.min(1, Math.max(0, (b * f - c * e) / den)) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
+      else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); }
+    }
+  }
+  return [s, t];
+}
+
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
 const Y = new THREE.Vector3(0, 1, 0);
 const mtx = new THREE.Matrix4();
@@ -96,7 +136,31 @@ export class Ragdoll {
     for (let it = 0; it < 10; it++) {
       for (const [a, b, rest] of this.links) this._solve(a, b, rest, 1, false);
       for (const [a, b, min] of this.minLinks) this._solve(a, b, min, 1, true);
+      if (it % 3 === 0) this._selfCollide();
       for (const q of p) this._collide(q);
+    }
+  }
+
+  // Limbs are capsules: keep them from passing through each other / the body
+  _selfCollide() {
+    const p = this.p;
+    for (const [i, j] of SELF_PAIRS) {
+      const A = SEGS[i], Bs = SEGS[j];
+      const a0 = p[A[0]], a1 = p[A[1]], b0 = p[Bs[0]], b1 = p[Bs[1]];
+      const [s, t] = closestST(a0, a1, b0, b1);
+      const ax = a0.x + (a1.x - a0.x) * s, ay = a0.y + (a1.y - a0.y) * s, az = a0.z + (a1.z - a0.z) * s;
+      const bx = b0.x + (b1.x - b0.x) * t, by = b0.y + (b1.y - b0.y) * t, bz = b0.z + (b1.z - b0.z) * t;
+      let dx = bx - ax, dy = by - ay, dz = bz - az;
+      const d = Math.hypot(dx, dy, dz), min = A[2] + Bs[2];
+      if (d >= min || d < 1e-6) continue;
+      const push = (min - d) * 0.5 / d;
+      dx *= push; dy *= push; dz *= push;
+      // spread the correction over the two end points of each segment
+      const wa0 = 1 - s, wa1 = s, wb0 = 1 - t, wb1 = t;
+      a0.x -= dx * wa0; a0.y -= dy * wa0; a0.z -= dz * wa0;
+      a1.x -= dx * wa1; a1.y -= dy * wa1; a1.z -= dz * wa1;
+      b0.x += dx * wb0; b0.y += dy * wb0; b0.z += dz * wb0;
+      b1.x += dx * wb1; b1.y += dy * wb1; b1.z += dz * wb1;
     }
   }
 

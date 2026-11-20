@@ -319,6 +319,69 @@ function wallGraffiti(S) {
   return c;
 }
 
+// One spray-painted tag on a transparent background (used as a wall decal)
+function graffitiDecal(seed) {
+  const W = 256, H = 192; const [c, ctx] = canvas(W, H);
+  const cols = ['#e0245e', '#18a0e8', '#f2c200', '#2ecc40', '#ff6a00', '#9d4edd', '#151515', '#f5f5f5'];
+  const words = ['KM', 'ZOOT', 'REKT', 'NOPE', 'XO', 'BOOM', 'LOL', 'RUN', 'HIDE', 'WHO?'];
+  const pick = (a, k) => a[Math.floor(hash(seed, k, 451) * a.length)];
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.save(); ctx.translate(W / 2, H * 0.55); ctx.rotate((hash(seed, 1, 452) - 0.5) * 0.35);
+  const word = pick(words, 2), fill = pick(cols, 3), out = pick(cols, 4);
+  ctx.font = `bold ${60 + Math.floor(hash(seed, 5, 453) * 26)}px Impact, Arial Black, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = out; ctx.lineWidth = 9; ctx.globalAlpha = 0.85; ctx.strokeText(word, 0, 0);
+  ctx.fillStyle = fill; ctx.fillText(word, 0, 0);
+  ctx.fillStyle = fill; for (let k = 0; k < 5; k++) ctx.fillRect(-60 + hash(seed, k + 10, 454) * 120, 22, 3, 10 + hash(seed, k, 455) * 30); // drips
+  ctx.restore();
+  // a squiggle / arrow
+  ctx.strokeStyle = pick(cols, 6); ctx.globalAlpha = 0.75; ctx.lineWidth = 5;
+  ctx.beginPath(); let x = 20 + hash(seed, 7, 456) * 40, y = 30 + hash(seed, 8, 457) * 30; ctx.moveTo(x, y);
+  for (let k = 0; k < 5; k++) { x += 30 + hash(seed, k, 458) * 20; y += (hash(seed, k, 459) - 0.5) * 40; ctx.quadraticCurveTo(x - 15, y - 25, x, y); }
+  ctx.stroke();
+  // soft spray overspray around the edges
+  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 0) d[i] = Math.min(255, d[i] * (0.75 + hash(i, seed, 460) * 0.25));
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// Library shelves: rows of books
+function shelfBooks(S) {
+  const [c, ctx] = canvas(S);
+  ctx.fillStyle = '#3a2618'; ctx.fillRect(0, 0, S, S);
+  const levels = 4, bookCols = ['#7a1f1f', '#1f3f7a', '#2f5f2f', '#6b4a1e', '#3a3a3a', '#8a6a2a', '#5a2a5a', '#204a4a', '#9a8a6a', '#6a2a1a'];
+  for (let i = 0; i < levels; i++) {
+    const y0 = (i / levels) * S, lh = S / levels;
+    ctx.fillStyle = '#1e140c'; ctx.fillRect(0, y0, S, lh);
+    let x = 4;
+    while (x < S - 8) {
+      if (rnd() < 0.06) { x += 10 + rnd() * 18; continue; } // a gap
+      const w = 5 + rnd() * 9, h = lh * (0.62 + rnd() * 0.3);
+      const col = bookCols[Math.floor(rnd() * bookCols.length)];
+      ctx.fillStyle = col; ctx.fillRect(x, y0 + lh - h - 6, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x, y0 + lh - h - 6, 1.5, h);       // spine highlight
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + w - 1.5, y0 + lh - h - 6, 1.5, h);
+      ctx.fillStyle = 'rgba(230,200,120,0.55)'; ctx.fillRect(x + 1, y0 + lh - h + 4, w - 2, 2); ctx.fillRect(x + 1, y0 + lh - 18, w - 2, 1.5); // gold bands
+      x += w + 0.5;
+    }
+    ctx.fillStyle = '#5a3b22'; ctx.fillRect(0, y0 + lh - 6, S, 6);
+  }
+  ctx.fillStyle = '#4a3020'; ctx.fillRect(0, 0, 6, S); ctx.fillRect(S - 6, 0, 6, S);
+  return c;
+}
+
+function takeoutTex(S) {
+  const [c, ctx] = canvas(S);
+  ctx.fillStyle = '#f2efe6'; ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = '#c0282d'; ctx.font = 'bold 34px serif'; ctx.textAlign = 'center';
+  ctx.beginPath(); ctx.arc(S / 2, S * 0.55, 26, 0, 7); ctx.lineWidth = 4; ctx.strokeStyle = '#c0282d'; ctx.stroke();
+  ctx.fillText('福', S / 2, S * 0.55 + 12);
+  ctx.fillStyle = 'rgba(160,110,40,0.25)'; ctx.beginPath(); ctx.ellipse(S * 0.3, S * 0.85, 20, 10, 0, 0, 7); ctx.fill(); // grease stain
+  return c;
+}
+
 // Flat concrete roof: tar seams, gravel, water stains
 function roof(S) {
   const [c, ctx] = canvas(S);
@@ -531,7 +594,9 @@ export function makeTextures(renderer, quality = 'medium') {
   T.counter = tex(counter(256));
   T.pillar = tex(pillar(256));
   T.floorDirty = tex(floorDirty(S));
-  T.wallGraffiti = tex(wallGraffiti(S));
+  T.graffiti = [0, 1, 2, 3, 4].map((i) => graffitiDecal(i + 1));
+  T.shelfBooks = tex(shelfBooks(256));
+  T.takeout = tex(takeoutTex(128));
   T.roof = tex(roof(256));
   T.mattress = tex(mattress(128));
   T.cardboard = tex(cardboard(128));

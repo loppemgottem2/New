@@ -97,24 +97,53 @@ export { geos };
 const SHARED = {};
 const shared = (k, make) => (SHARED[k] ||= make());
 
+// Knife: the origin is the middle of the handle (where the fist holds it); blade points to -Z.
+let KNIFE_GEO = null;
 export function makeKnifeMesh() {
-  const g = geos();
+  if (!KNIFE_GEO) {
+    // blade outline (x = along the blade, y = height): straight spine, curved edge up to a sharp tip
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0);
+    sh.lineTo(0.15, 0.0);
+    sh.quadraticCurveTo(0.225, 0.006, 0.255, 0.034);
+    sh.lineTo(0.205, 0.036);
+    sh.lineTo(0, 0.036);
+    sh.lineTo(0, 0);
+    const blade = new THREE.ExtrudeGeometry(sh, { depth: 0.004, bevelEnabled: true, bevelThickness: 0.0018, bevelSize: 0.0018, bevelSegments: 1, curveSegments: 6 });
+    blade.rotateY(Math.PI / 2);            // length -> -Z, thickness -> X
+    blade.translate(-0.002, -0.018, -0.06);
+    const handle = new THREE.CapsuleGeometry(0.016, 0.085, 3, 8); handle.rotateX(Math.PI / 2); handle.scale(0.85, 1.15, 1);
+    const guard = new THREE.BoxGeometry(0.024, 0.06, 0.012); guard.translate(0, 0, -0.056);
+    const pommel = new THREE.BoxGeometry(0.026, 0.038, 0.016); pommel.translate(0, 0, 0.058);
+    const rivet = new THREE.CylinderGeometry(0.0045, 0.0045, 0.032, 6); rivet.rotateZ(Math.PI / 2);
+    KNIFE_GEO = { blade, handle, guard, pommel, rivet };
+  }
+  const G2 = KNIFE_GEO;
   const knife = new THREE.Group();
-  knife.add(new THREE.Mesh(g.blade, shared('blade', () => new THREE.MeshLambertMaterial({ color: 0xdfe4ea, emissive: 0x2a2e33 }))));
-  knife.add(new THREE.Mesh(g.handle, shared('handle', () => new THREE.MeshLambertMaterial({ color: 0x24160c }))));
-  knife.add(new THREE.Mesh(g.guard, shared('guard', () => new THREE.MeshLambertMaterial({ color: 0x777777 }))));
+  const steel = shared('blade', () => new THREE.MeshLambertMaterial({ color: 0xd9dee4, emissive: 0x30353a }));
+  const dark = shared('kgrip', () => new THREE.MeshLambertMaterial({ color: 0x1d130c }));
+  const brass = shared('brass', () => new THREE.MeshLambertMaterial({ color: 0xa08850 }));
+  knife.add(new THREE.Mesh(G2.blade, steel), new THREE.Mesh(G2.handle, dark), new THREE.Mesh(G2.guard, brass), new THREE.Mesh(G2.pommel, brass));
+  for (const z of [-0.02, 0.025]) { const r = new THREE.Mesh(G2.rivet, brass); r.position.z = z; knife.add(r); }
   return knife;
 }
+
+// Revolver: the origin is the middle of the grip (where the hand holds it); barrel points to -Z.
 export function makeGunMesh() {
   const g = geos();
   const gun = new THREE.Group();
+  const inner = new THREE.Group();
+  inner.position.set(0, 0.04, -0.042);
+  gun.add(inner);
   const metal = shared('gunmetal', () => new THREE.MeshLambertMaterial({ color: 0x2b2d31, emissive: 0x0c0c0e }));
   const b = new THREE.Mesh(g.barrel, metal); b.rotation.x = Math.PI / 2; b.position.set(0, 0.03, -0.14);
   const c = new THREE.Mesh(g.cyl, metal); c.rotation.x = Math.PI / 2; c.position.set(0, 0.02, -0.03);
   const f = new THREE.Mesh(g.frame, metal); f.position.set(0, 0.025, 0);
   const gr = new THREE.Mesh(g.grip, shared('grip', () => new THREE.MeshLambertMaterial({ color: 0x5a3518 })));
   gr.position.set(0, -0.03, 0.04); gr.rotation.x = -0.35;
-  gun.add(b, c, f, gr);
+  const tg = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.004, 4, 10, Math.PI), metal); tg.position.set(0, -0.005, 0.0); tg.rotation.set(0, Math.PI / 2, Math.PI);
+  const hammer = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.02, 0.015), metal); hammer.position.set(0, 0.055, 0.045);
+  inner.add(b, c, f, gr, tg, hammer);
   return gun;
 }
 
@@ -290,8 +319,10 @@ export class CharacterModel {
     this.legR = makeLeg(1);
 
     // weapons in the right hand
-    this.knife = makeKnifeMesh(); this.knife.rotation.x = -Math.PI / 2; this.knife.position.set(0, -0.02, 0);
-    this.gun = makeGunMesh(); this.gun.rotation.x = -Math.PI / 2; this.gun.position.set(0, -0.02, 0);
+    // knife held upright in the fist (blade points up when the arm is forward)
+    this.knife = makeKnifeMesh(); this.knife.position.set(0, -0.005, 0); this.knife.scale.setScalar(1.15);
+    // revolver held by its grip, barrel along the arm
+    this.gun = makeGunMesh(); this.gun.rotation.x = -Math.PI / 2; this.gun.position.set(0, -0.005, 0.0); this.gun.scale.setScalar(1.4);
     this.armR.hand.add(this.knife, this.gun);
     this.knife.visible = false; this.gun.visible = false;
 
@@ -354,8 +385,9 @@ export class CharacterModel {
     let legLz = -0.02, legRz = 0.02;
     if (!s.onGround) {
       // little "hop" pose: right knee up, out and bent; left leg back, slightly out and bent
-      legRx = 0.95; legRz = 0.32; kneeR = -1.35;
-      legLx = -0.35; legLz = -0.16; kneeL = -0.85;
+      // legs stay in front of the body (no sideways spread): right knee up, left leg tucked more
+      legRx = 1.0; legRz = 0.03; kneeR = -1.4;
+      legLx = 0.3; legLz = -0.03; kneeL = -1.35;
     }
     this.legL.hip.rotation.set(legLx, 0, legLz); this.legR.hip.rotation.set(legRx, 0, legRz);
     this.legL.kn.rotation.x = kneeL; this.legR.kn.rotation.x = kneeR;
@@ -374,10 +406,11 @@ export class CharacterModel {
     if (this.recoilT > 0) this.recoilT -= dt;
     if (s.weapon === 2) {
       const rec = this.recoilT > 0 ? this.recoilT * 2.5 : 0;
-      this.armR.sh.rotation.set(Math.PI / 2 + s.pitch * 0.9 + rec, 0, 0.05);
-      this.armR.el.rotation.x = 0.05;
-      this.armL.sh.rotation.set(Math.PI / 2.2 + s.pitch * 0.9, 0, 0.55);
-      this.armL.el.rotation.x = 0.35;
+      // both hands on the revolver: right hand on the grip, left hand cupped under it
+      this.armR.sh.rotation.set(Math.PI / 2 + s.pitch * 0.9 + rec, 0, -0.12);
+      this.armR.el.rotation.x = 0.12;
+      this.armL.sh.rotation.set(Math.PI / 2 + s.pitch * 0.9 + rec * 0.8, 0, 0.62);
+      this.armL.el.rotation.x = 0.42;
     } else if (s.weapon === 1) {
       const k = this.swingT > 0 ? Math.sin((1 - this.swingT / 0.35) * Math.PI) : 0;
       this.armR.sh.rotation.set(0.9 + k * 1.4 + s.pitch * 0.5, 0, 0.1 - k * 0.3);
@@ -426,9 +459,19 @@ export class ViewModel {
     this.fore = new THREE.Mesh(g.foreArm, this.skin); this.fore.rotation.x = Math.PI / 2; this.fore.position.z = 0.375; this.fore.scale.set(1.15, 1.5, 1.15);
     this.hand = new THREE.Mesh(g.hand, this.skin); this.hand.rotation.x = Math.PI / 2; this.hand.position.set(0, -0.01, 0.31); this.hand.scale.set(1.3, 1.05, 1.3);
     this.arm.add(this.fore, this.hand);
-    this.knife = makeKnifeMesh(); this.knife.scale.setScalar(1.15); this.knife.position.set(0, 0.03, -0.02);
-    this.gun = makeGunMesh(); this.gun.scale.setScalar(1.3); this.gun.position.set(0, 0.04, -0.02);
+    // knife upright in the fist, leaning slightly forward
+    this.knife = makeKnifeMesh(); this.knife.scale.setScalar(1.3); this.knife.rotation.x = Math.PI / 2 - 0.3; this.knife.position.set(0, 0.0, 0.0);
+    // revolver held by the grip (bigger), with the left hand supporting it
+    this.gun = makeGunMesh(); this.gun.scale.setScalar(1.55); this.gun.position.set(0, -0.005, 0.0);
     this.arm.add(this.knife, this.gun);
+    this.support = new THREE.Group();
+    const sFore = new THREE.Mesh(g.foreArm, this.skin); sFore.rotation.x = Math.PI / 2; sFore.position.z = 0.375; sFore.scale.set(1.15, 1.5, 1.15);
+    const sHand = new THREE.Mesh(g.hand, this.skin); sHand.rotation.x = Math.PI / 2; sHand.position.set(0, -0.01, 0.31); sHand.scale.set(1.3, 1.05, 1.3);
+    this.support.add(sFore, sHand);
+    this.support.position.set(-0.05, -0.045, 0.02);
+    this.support.rotation.set(0.15, -0.55, 0.35);
+    this.supportFore = sFore;
+    this.arm.add(this.support);
     this.swingT = 0; this.recoilT = 0; this.bob = 0; this.throwT = 0;
     this.base = new THREE.Vector3(0.24, -0.24, -0.42);
     this.arm.position.copy(this.base);
@@ -438,6 +481,7 @@ export class ViewModel {
     const long = look.shirt === 'dressshirt' || look.shirt === 'sweater';
     const sl = look.shirt === 'sweater' ? this.sleeveKnit : this.sleeve;
     this.fore.material = long ? sl : this.skin;
+    this.supportFore.material = long ? sl : this.skin;
     sl.color.setHex(shirtColor).multiplyScalar(light);
     this.skin.color.setHex(look.skin).multiplyScalar(light);
   }
@@ -448,6 +492,8 @@ export class ViewModel {
     this.group.visible = visible && weapon !== 0;
     this.knife.visible = weapon === 1 && this.throwT <= 0;
     this.gun.visible = weapon === 2;
+    this.support.visible = weapon === 2;
+    this.base.x = weapon === 2 ? 0.17 : 0.24; // two-handed: hold it more in the middle
     this.bob += dt * speed * 1.8;
     const bx = Math.sin(this.bob) * 0.012 * Math.min(1, speed / 4);
     const by = Math.abs(Math.cos(this.bob)) * 0.014 * Math.min(1, speed / 4);

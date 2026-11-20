@@ -710,9 +710,9 @@ export class Game {
         const R = {
           murderer: ['You are the Murderer', 'Kill everyone. Don\'t get caught.', '#e33'],
           sheriff: ['You are the Sheriff', 'You have a revolver. Find the murderer and shoot them — but never an innocent.', '#4af'],
+          innocent: ['You are a Bystander', '', '#4af'],
         }[ev.role];
         if (R) ui.bigMessage(R[0], R[1], R[2], 4.5);
-        else if (ev.role === 'innocent') ui.toast('There is a murderer among us. Stay alive and collect gun parts.', '#ddd', 5);
         Audio.roundStart(ev.role === 'murderer');
         break;
       }

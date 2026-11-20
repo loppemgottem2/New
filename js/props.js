@@ -18,6 +18,7 @@ const V = THREE.Vector3, Q = THREE.Quaternion;
 const GRAV = 18;
 // heights (above the feet) where a character's body is tested against props
 const CHAR_SAMPLES = [0.45, 0.65, 0.85, 1.05, 1.25, 1.45, 1.65];
+const KICK_SAMPLES = [0.05, 0.2, 0.35];
 const P = CONFIG.PLAYER;
 
 // parts: [cx, cy, cz, hx, hy, hz, yaw?] — box center + half sizes, origin = bottom center of the prop
@@ -27,9 +28,11 @@ export const PROP_TYPES = {
   chair:    { mass: 1.4, sound: 'wood', mu: 0.5, parts: [[0, 0.455, 0, 0.22, 0.03, 0.21], [0, 0.71, 0.2, 0.22, 0.22, 0.025], [-0.19, 0.22, 0, 0.022, 0.22, 0.2], [0.19, 0.22, 0, 0.022, 0.22, 0.2]] },
   table:    { mass: 8.0, sound: 'wood', mu: 0.3, parts: [[0, 0.745, 0, 0.62, 0.025, 0.4], [-0.53, 0.36, 0, 0.03, 0.36, 0.34], [0.53, 0.36, 0, 0.03, 0.36, 0.34]] },
   barrel:   { mass: 5.0, sound: 'metal', mu: 0.5, parts: [[0, 0.45, 0, 0.3, 0.45, 0.3], [0, 0.45, 0, 0.3, 0.45, 0.3, Math.PI / 4]] },
-  mattress: { mass: 3.0, sound: 'soft', mu: 0.9, parts: [[0, 0.1, 0, 0.95, 0.1, 0.45]] },
+  mattress: { mass: 1.6, sound: 'soft', mu: 0.7, parts: [[0, 0.12, 0, 1.02, 0.12, 0.52]] },
   lamp:     { mass: 2.0, sound: 'metal', mu: 0.5, parts: [[0, 0.025, 0, 0.17, 0.025, 0.17], [0, 0.8, 0, 0.022, 0.75, 0.022], [0, 1.56, 0, 0.17, 0.12, 0.17]] },
-  bottle:   { mass: 0.35, sound: 'glass', mu: 0.4, parts: [[0, 0.12, 0, 0.036, 0.12, 0.036]] },
+  bottle:   { mass: 0.2, sound: 'glass', mu: 0.35, parts: [[0, 0.175, 0, 0.05, 0.175, 0.05]] },
+  trashcan: { mass: 2.5, sound: 'metal', mu: 0.5, parts: [[0, 0.32, 0, 0.24, 0.32, 0.24], [0, 0.32, 0, 0.24, 0.32, 0.24, Math.PI / 4]] },
+  takeout:  { mass: 0.15, sound: 'cardboard', mu: 0.5, parts: [[0, 0.06, 0, 0.065, 0.06, 0.055]] },
 };
 
 // ---------------- shared temps ----------------
@@ -87,7 +90,7 @@ function buildGeometry() {
     for (const y of [0.04, 0.3, 0.6, 0.86]) p.push({ geo: new THREE.TorusGeometry(0.315, 0.018, 4, 18), mat: 1, m: M4(0, y, 0, Math.PI / 2) });
     GEO.barrel = mergeParts(p);
   }
-  GEO.mattress = mergeParts([{ geo: Box(1.9, 0.2, 0.9), mat: 0, m: M4(0, 0.1, 0) }, { geo: Box(0.5, 0.08, 0.32), mat: 0, m: M4(0.62, 0.23, 0, 0, 0, 0.05) }]);
+  GEO.mattress = mergeParts([{ geo: Box(2.04, 0.24, 1.04), mat: 0, m: M4(0, 0.12, 0) }, { geo: Box(0.55, 0.09, 0.36), mat: 0, m: M4(0.68, 0.28, 0, 0, 0, 0.05) }]);
   GEO.lamp = mergeParts([
     { geo: Cyl(0.17, 0.17, 0.05, 16), mat: 1, m: M4(0, 0.025, 0) },
     { geo: Cyl(0.018, 0.018, 1.5, 8), mat: 1, m: M4(0, 0.8, 0) },
@@ -95,11 +98,23 @@ function buildGeometry() {
     { geo: new THREE.SphereGeometry(0.05, 8, 6), mat: 2, m: M4(0, 1.5, 0) },
   ]);
   GEO.bottle = mergeParts([
-    { geo: Cyl(0.034, 0.034, 0.16, 10), mat: 0, m: M4(0, 0.08, 0) },
-    { geo: Cyl(0.013, 0.03, 0.05, 10), mat: 0, m: M4(0, 0.185, 0) },
-    { geo: Cyl(0.013, 0.013, 0.05, 8), mat: 0, m: M4(0, 0.235, 0) },
-    { geo: Cyl(0.015, 0.015, 0.01, 8), mat: 1, m: M4(0, 0.262, 0) },
+    { geo: Cyl(0.048, 0.048, 0.23, 12), mat: 0, m: M4(0, 0.115, 0) },
+    { geo: Cyl(0.019, 0.045, 0.07, 12), mat: 0, m: M4(0, 0.265, 0) },
+    { geo: Cyl(0.019, 0.019, 0.05, 10), mat: 0, m: M4(0, 0.325, 0) },
+    { geo: Cyl(0.022, 0.022, 0.012, 10), mat: 1, m: M4(0, 0.352, 0) },
+    { geo: Cyl(0.0485, 0.0485, 0.08, 12, true), mat: 2, m: M4(0, 0.12, 0) },   // paper label
   ]);
+  {
+    const p = [{ geo: Cyl(0.25, 0.22, 0.64, 16, true), mat: 0, m: M4(0, 0.32, 0) }, { geo: new THREE.CircleGeometry(0.22, 16), mat: 0, m: M4(0, 0.005, 0, -Math.PI / 2) },
+      { geo: new THREE.TorusGeometry(0.25, 0.015, 4, 18), mat: 0, m: M4(0, 0.64, 0, Math.PI / 2) },
+      { geo: new THREE.CircleGeometry(0.235, 16), mat: 1, m: M4(0, 0.55, 0, -Math.PI / 2) }];                    // garbage inside
+    for (const a of [0, 1.6, 3.3]) p.push({ geo: Box(0.12, 0.1, 0.1), mat: 2, m: M4(Math.cos(a) * 0.1, 0.6, Math.sin(a) * 0.1, 0.3, a, 0.2) });
+    GEO.trashcan = mergeParts(p);
+  }
+  {
+    const p = [{ geo: Cyl(0.07, 0.055, 0.11, 4), mat: 0, m: M4(0, 0.055, 0, 0, Math.PI / 4) }, { geo: new THREE.TorusGeometry(0.035, 0.004, 4, 10, Math.PI), mat: 1, m: M4(0, 0.11, 0) }];
+    GEO.takeout = mergeParts(p);
+  }
   return GEO;
 }
 
@@ -123,7 +138,9 @@ export class PropSystem {
         case 'barrel': return [new THREE.MeshLambertMaterial({ map: T.barrel }), new THREE.MeshLambertMaterial({ map: T.metal })];
         case 'mattress': return [new THREE.MeshLambertMaterial({ map: T.mattress })];
         case 'lamp': return [new THREE.MeshLambertMaterial({ map: T.metal }), new THREE.MeshLambertMaterial({ color: 0x333333 }), glowMat];
-        case 'bottle': return [new THREE.MeshLambertMaterial({ color: i % 3 ? 0x2f6b2a : 0x6b3e14, transparent: true, opacity: 0.85 }), new THREE.MeshLambertMaterial({ color: 0xc9a227 })];
+        case 'bottle': return [new THREE.MeshLambertMaterial({ color: 0x6a3a12, transparent: true, opacity: 0.88 }), new THREE.MeshLambertMaterial({ color: 0xc9a227 }), new THREE.MeshLambertMaterial({ color: i % 2 ? 0xe8dcc0 : 0xd8c070 })];
+        case 'trashcan': return [new THREE.MeshLambertMaterial({ map: T.metal, color: 0x8a8f86, side: THREE.DoubleSide }), new THREE.MeshLambertMaterial({ color: 0x2a2620 }), new THREE.MeshLambertMaterial({ map: T.cardboard })];
+        case 'takeout': return [new THREE.MeshLambertMaterial({ map: T.takeout }), new THREE.MeshLambertMaterial({ color: 0x999999 })];
         default: return [new THREE.MeshLambertMaterial({ color: 0x888888 })];
       }
     };
@@ -158,7 +175,9 @@ export class PropSystem {
       if (s.tip) quat.multiply(new Q().setFromAxisAngle(new V(0, 0, 1), s.type === 'bottle' ? Math.PI / 2 : Math.PI / 2 * (id % 2 ? 1 : -1)));
       let minY = Infinity;
       for (const c of corners) minY = Math.min(minY, t1.copy(c).applyQuaternion(quat).y);
-      const pos = new V(s.x, -minY + 0.002, s.z);
+      // rest on the floor, or on top of props spawned earlier in the same spot (piles / stacks)
+      const under = Math.max(0, this.topAt(s.x, s.z, 0.25, 3));
+      const pos = new V(s.x, under - minY + 0.002, s.z);
       const p = {
         id, type: s.type, def, mass: m, invMass: 1 / m, invI, com, parts, corners, mu: def.mu,
         bound: Math.max(...corners.map((c) => c.length())),
@@ -321,10 +340,13 @@ export class PropSystem {
       const reach = p.bound + R + 0.1;
       if (dx * dx + dz * dz > reach * reach) continue;
       if (ch.y > p.top - 0.02 || ch.y + P.HEIGHT < p.y) continue;
+      // low things (bottles, food boxes, mattresses) are walked over and kicked, not blocking
+      const low = p.top - ch.y <= P.STEP_HEIGHT + 0.05;
+      const samples = low ? KICK_SAMPLES : CHAR_SAMPLES;
       let best = 0, nx = 0, nz = 0;
       const bq = new V();
       for (const part of p.parts) {
-        for (const hs of CHAR_SAMPLES) {
+        for (const hs of samples) {
           s.set(ch.x, ch.y + hs, ch.z);
           this.toPartLocal(p, part, s, l);
           const inside = Math.abs(l.x) < part.h.x && Math.abs(l.y) < part.h.y && Math.abs(l.z) < part.h.z;
@@ -339,7 +361,7 @@ export class PropSystem {
         }
       }
       if (best <= 0) continue;
-      ch.x += nx * best * soft; ch.z += nz * best * soft;
+      if (!low) { ch.x += nx * best * soft; ch.z += nz * best * soft; }
       if (push) {
         const dir = t4.set(-nx, 0, -nz);
         // push point pulled a bit toward the center of mass: tall things still tip, tables mostly slide
@@ -347,7 +369,7 @@ export class PropSystem {
         r.y *= 0.55;
         const vp = this.pointVel(p, r, new V()).dot(dir);
         const chv = Math.max(0, (ch.vx || 0) * dir.x + (ch.vz || 0) * dir.z);
-        const want = Math.min(chv * 1.05, 3.5) + best * 6;
+        const want = low ? Math.min(chv * 1.2, 6) + best * 4 : Math.min(chv * 1.05, 3.5) + best * 6;
         if (vp < want) {
           const k = this.kAlong(p, r, dir);
           const j = Math.min((want - vp) / k, 55 * dt);
