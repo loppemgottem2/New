@@ -191,7 +191,11 @@ function hairMeshes(style, hairMat) {
       }
       break;
     }
-    case 'afro': add(new THREE.SphereGeometry(0.215, 16, 12), 0, 0.22, 0.03, 0, 0, 0, 1, 0.88, 1); break;
+    case 'afro':
+      // sits higher and further back so the front edge stays above the eyebrows
+      add(new THREE.SphereGeometry(0.205, 18, 14), 0, 0.265, 0.07, 0, 0, 0, 1.02, 0.86, 1);
+      add(new THREE.SphereGeometry(0.19, 16, 12), 0, 0.17, 0.11, 0, 0, 0, 1.0, 0.95, 0.9);   // volume at the back / sides
+      break;
     case 'cap':
       add(new THREE.SphereGeometry(0.168, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.5), 0, 0.165, 0.005, 0.12, 0, 0, 0.96, 1.0, 1.04);
       add(new THREE.CylinderGeometry(0.105, 0.105, 0.012, 18), 0, 0.2, -0.165, -0.1, 0, 0, 1, 1, 0.8);
