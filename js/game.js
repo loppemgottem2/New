@@ -480,7 +480,7 @@ export class Game {
       this.kill(hit, c, 'gun', { x: d.x * 7, y: d.y * 7 + 1, z: d.z * 7 });
       // shooting an innocent bystander costs the shooter's life (and the gun drops)
       if (W.SHERIFF_DIES_ON_INNOCENT_KILL && c.role !== 'murderer' && hit.role !== 'murderer' && c.alive) {
-        this.emit({ e: 'msg', text: 'You shot an innocent bystander... and paid with your life.', color: '#f55', big: 1 }, [c.id]);
+        this.emit({ e: 'msg', text: 'You shot a bystander', color: '#f55', big: 1 }, [c.id]);
         this.kill(c, null, 'penalty', { x: -d.x * 1.5, y: 0.5, z: -d.z * 1.5 });
       }
     }
