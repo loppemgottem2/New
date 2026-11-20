@@ -5,8 +5,8 @@
 
 export const CONFIG = {
   VERSION: '1.0.0',
-  TITLE: 'MURDER',
-  SUBTITLE: 'Pocket Edition',
+  TITLE: 'KILLER MYSTERY',
+  SUBTITLE: '',
 
   // ---------------- Server / lobby ----------------
   SERVER: {
@@ -86,7 +86,7 @@ export const CONFIG = {
 
   // ---------------- Networking ----------------
   NET: {
-    PEER_PREFIX: 'gmodmurder-pocket-v1-', // change this to get your own isolated server network
+    PEER_PREFIX: 'killermystery-v1-', // change this to get your own isolated server network
     PUBLIC_SLOTS: 8,        // number of public server slots in the browser
     SNAPSHOT_RATE: 15,      // host -> clients updates per second
     INPUT_RATE: 20,         // client -> host updates per second

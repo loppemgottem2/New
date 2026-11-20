@@ -1,4 +1,4 @@
-# MURDER — Pocket Edition
+# KILLER MYSTERY
 
 A multiplayer murder-mystery game for phones and browsers, in the style of the classic sandbox-game "Murder" gamemode.
 One player is secretly the **Murderer** (has a knife), one bystander secretly has a **revolver**, and everyone else must

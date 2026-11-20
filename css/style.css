@@ -1,4 +1,4 @@
-/* ============ Murder: Pocket Edition — styles ============ */
+/* ============ Killer Mystery — styles ============ */
 :root {
   --panel: rgba(28, 28, 30, 0.92);
   --panel-2: rgba(48, 48, 52, 0.95);
@@ -51,7 +51,7 @@ p { margin: 0; line-height: 1.45; font-size: 14px; }
   color: var(--accent-2); text-shadow: 0 3px 0 #5a0d0d, 0 0 24px rgba(229, 57, 53, 0.35);
   line-height: 1;
 }
-.logo-sub { color: #ccc; letter-spacing: 4px; font-size: 13px; text-transform: uppercase; margin-top: 4px; }
+.logo-sub { color: #ccc; letter-spacing: 9px; font-size: 18px; font-weight: bold; text-transform: uppercase; margin-top: 4px; }
 .version { text-align: center; color: #666; font-size: 11px; }
 .notice { background: rgba(198, 40, 40, 0.18); border: 1px solid rgba(229, 57, 53, 0.4); padding: 8px 10px; border-radius: 4px; font-size: 13px; }
 

@@ -27,8 +27,8 @@ const DEFAULTS = {
   invert: false,
   fps: false,
 };
-const settings = { ...DEFAULTS, ...store.get('gmm-settings', {}) };
-const saveSettings = () => store.set('gmm-settings', settings);
+const settings = { ...DEFAULTS, ...store.get('killermystery-settings', {}) };
+const saveSettings = () => store.set('killermystery-settings', settings);
 
 // ---------------- renderer / scene ----------------
 const canvas = $('c');
