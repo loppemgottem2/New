@@ -36,6 +36,9 @@ export function initBrain(c) {
     seenCorpses: new Set(),
     lookT: rand(1, 3), lookYaw: c.yaw,
     collector: Math.random() < B.COLLECT_PARTS_CHANCE,
+    skill: Math.random(),            // 0 = clumsy, 1 = expert (re-rolled every round)
+    blockT: 0, blockCount: 0, blockCalm: 0,
+    hideWait: 0,
     brave: Math.random() < B.BRAVERY,
     run: false,
   };
@@ -64,6 +67,12 @@ function witnesses(game, murderer, victim) {
     if (hasLOS(game.map, o.x, o.y + P.EYE, o.z, murderer.x, murderer.y + 1.2, murderer.z)) n++;
   }
   return n;
+}
+
+// reaction time: skilled bots react faster (with a little randomness)
+function reactTime(b) {
+  const base = B.REACTION_MAX * 1.3 + (B.REACTION_MIN * 0.75 - B.REACTION_MAX * 1.3) * b.skill;
+  return base * rand(0.85, 1.15);
 }
 
 function setPath(game, c, b, gx, gz) {
@@ -97,7 +106,7 @@ export function botsOnKill(game, victim, killer, cause) {
         b.susp.set(killer.id, 100);
         b.threatId = killer.id; b.threat = { x: killer.x, z: killer.z };
         b.fear = 1;
-        b.reactT = rand(B.REACTION_MIN, B.REACTION_MAX);
+        b.reactT = reactTime(b);
       }
     }
     if (sawVictim) {
@@ -162,7 +171,7 @@ function perceive(game, c, b) {
     b.seenAt.set(o.id, now);
     if (c.role !== 'murderer' && weaponOf(o) === 1) {
       // someone has a knife out!
-      if ((b.susp.get(o.id) || 0) < 100) b.reactT = rand(B.REACTION_MIN, B.REACTION_MAX);
+      if ((b.susp.get(o.id) || 0) < 100) b.reactT = reactTime(b);
       b.susp.set(o.id, 100);
       b.threatId = o.id;
       b.threat = { x: o.x, z: o.z };
@@ -219,7 +228,7 @@ function thinkInnocent(game, c, b, active) {
   if (active && c.hasGun && game.phase === 'play') {
     const t = bestTarget(game, c, b, B.DRAW_SUSPICION);
     if (t) {
-      if (b.targetId !== t.id) b.reactT = rand(B.REACTION_MIN, B.REACTION_MAX);
+      if (b.targetId !== t.id) b.reactT = reactTime(b);
       b.targetId = t.id;
       b.state = 'engage';
       if (!c.equipped) game.hostAction(c, 'equip');
@@ -350,6 +359,17 @@ function thinkMurderer(game, c, b) {
     b.state = 'wander';
   }
 
+  // hiding: went somewhere out of sight, wait there, then start hunting again
+  if (b.state === 'hide') {
+    if (c.equipped) game.hostAction(c, 'equip');
+    b.run = b.skill > 0.5 && !!b.path;
+    if (b.path) return;
+    b.hideWait -= I;
+    if (b.hideWait > 0) return;
+    b.state = 'wander';
+    b.huntT = rand(3, 8);
+  }
+
   b.huntT -= I;
   let t = game.chars.get(b.targetId);
   if (t && !t.alive) { t = null; b.targetId = null; }
@@ -361,8 +381,8 @@ function thinkMurderer(game, c, b) {
       const d = Math.hypot(o.x - c.x, o.z - c.z);
       const wit = witnesses(game, c, o);
       const armed = weaponOf(o) === 2 ? 40 : 0;
-      const s = d + wit * 18 + armed + rand(0, 10);
-      if (s < bs) { bs = s; best = o; }
+      const s2 = d + wit * 18 + armed + rand(0, 10);
+      if (s2 < bs) { bs = s2; best = o; }
     }
     if (best) { t = best; b.targetId = best.id; b.state = 'stalk'; b.frustration = 0; }
   }
@@ -372,35 +392,69 @@ function thinkMurderer(game, c, b) {
     return;
   }
 
-  const d = Math.hypot(t.x - c.x, t.z - c.z);
+  let d = Math.hypot(t.x - c.x, t.z - c.z);
+  // someone else is much closer (and not armed)? switch to them mid-chase
+  for (const o of game.chars.values()) {
+    if (o === c || o === t || !o.alive || weaponOf(o) === 2) continue;
+    const od = Math.hypot(o.x - c.x, o.z - c.z);
+    // smarter murderers notice the better opportunity much more often
+    if (od < 9 && od < d * 0.55 && Math.random() < b.skill * b.skill * 0.6 && hasLOS(game.map, c.x, c.y + P.EYE, c.z, o.x, o.y + 1.2, o.z)) {
+      t = o; d = od; b.targetId = o.id; b.frustration *= 0.5;
+      break;
+    }
+  }
   const wit = witnesses(game, c, t);
   const lateGame = clamp(1 - game.timeLeft / CONFIG.ROUND.TIME_LIMIT, 0, 1);
   b.frustration += I * 0.02;
   const bold = lateGame * 0.7 + b.frustration > 0.75;
   const seeT = hasLOS(game.map, c.x, c.y + P.EYE, c.z, t.x, t.y + 1.2, t.z);
 
+  // sometimes give up completely and go hide behind a wall / somewhere far, then try again later
+  // giving up / hiding happens more for clumsy murderers (x1.6) than skilled ones (x0.3)
+  const nerves = 1.6 - 1.3 * b.skill;
+  const giveUp = (b.frustration > 0.9 && Math.random() < 0.25 * nerves * I) || (wit >= 2 && d > 4 && Math.random() < 0.35 * nerves * I) || Math.random() < 0.02 * nerves * I;
+  if (giveUp) {
+    const spot = hideSpot(game, c, t);
+    setPath(game, c, b, spot.x, spot.z);
+    b.state = 'hide'; b.targetId = null; b.frustration = 0; b.hideWait = rand(2, 7);
+    if (c.equipped) game.hostAction(c, 'equip');
+    return;
+  }
+
+  // sprinting: skilled murderers run until completely out of stamina, clumsy ones ease off early
+  const canSprint = b.skill > 0.7 || c.stamina > (1 - b.skill) * 70;
+  const throwChance = b.skill < 0.45 ? 0 : B.THROW_CHANCE * (0.4 + b.skill) * I;
   if (d < 7.5 && seeT && (wit === 0 || bold)) {
     b.state = 'attack';
     // walk up casually with the knife hidden, pull it out at the last moment
     const close = d < 3.6 || t.running || bold;
     if (close && !c.equipped) game.hostAction(c, 'equip');
-    b.run = close;
-    // victim is getting away: throw the knife
-    if (d > 4.5 && d < 13 && t.running && Math.random() < B.THROW_CHANCE * I) {
-      b.wantThrow = true;
-    }
+    b.run = close && canSprint;
+    if (d > 4.5 && d < 13 && t.running && Math.random() < throwChance) b.wantThrow = true;
   } else if (b.state === 'attack' && d < 14 && seeT) {
-    b.run = true; // keep chasing
-    if (d > 5 && d < 13 && Math.random() < B.THROW_CHANCE * I) b.wantThrow = true;
+    b.run = canSprint; // keep chasing
+    if (d > 5 && d < 13 && Math.random() < throwChance) b.wantThrow = true;
   } else {
     b.state = 'stalk';
     if (c.equipped && wit > 0) game.hostAction(c, 'equip');
-    b.run = d > 18;
+    b.run = d > 18 && canSprint;
     b.repathT -= I;
     if (!b.path || b.repathT <= 0) setPath(game, c, b, t.x, t.z);
   }
   // give up on a target that's taking too long
   if (b.frustration > 1.2 && wit > 1) { b.targetId = null; b.huntT = rand(2, 6); b.frustration = 0; }
+}
+
+// A spot 10-30 m away that the victim can't see (behind a wall), preferring nearer ones
+function hideSpot(game, c, t) {
+  let best = null, bd = Infinity;
+  for (let k = 0; k < 24; k++) {
+    const p = game.nav.randomPointNear(c.x, c.z, 10, 30, 6);
+    if (hasLOS(game.map, t.x, t.y + P.EYE, t.z, p.x, 1.2, p.z)) continue;
+    const d = Math.hypot(p.x - c.x, p.z - c.z);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best || game.nav.fleePoint(c.x, c.z, t.x, t.z);
 }
 
 // ---------------------------------------------------------------------
@@ -418,14 +472,16 @@ function act(game, c, b, dt) {
     const visible = hasLOS(game.map, c.x, c.y + P.EYE, c.z, target.x, target.y + 1.2, target.z);
     faceYaw = yawTo(dx, dz);
     facePitch = Math.atan2(target.y + 1.15 - (c.y + P.EYE), d);
-    c.yaw = turnToward(c.yaw, faceYaw, B.TURN_SPEED * dt);
-    c.pitch += clamp(facePitch - c.pitch, -B.TURN_SPEED * dt, B.TURN_SPEED * dt);
+    const turn = B.TURN_SPEED * (0.55 + 0.9 * b.skill);
+    c.yaw = turnToward(c.yaw, faceYaw, turn * dt);
+    c.pitch += clamp(facePitch - c.pitch, -turn * dt, turn * dt);
     b.reactT -= dt;
     const err = Math.abs(angleDiff(c.yaw, faceYaw));
     const susp = b.susp.get(target.id) || 0;
-    if (visible && b.reactT <= 0 && err < 5 * DEG && susp >= B.SHOOT_SUSPICION && c.attackCd <= 0 && d < 45 &&
+    if (visible && b.reactT <= 0 && err < (8 - 5 * b.skill) * DEG && susp >= B.SHOOT_SUSPICION && c.attackCd <= 0 && d < 45 &&
         weaponOf(c) === 2 && game.phase === 'play') {
-      const spread = B.AIM_SPREAD_DEG * DEG * (1 + d / 25) * (c.speed > 1 ? 1.6 : 1);
+      // aim quality depends on skill (random per bot), distance and moving while shooting
+      const spread = B.AIM_SPREAD_DEG * DEG * (2.0 - 1.6 * b.skill) * rand(0.8, 1.2) * (1 + d / 25) * (c.speed > 1 ? 1.6 - 0.4 * b.skill : 1);
       game.gunAttack(c, spread);
     }
     // positioning: get closer if far / no sight, back off from a knife
@@ -435,8 +491,8 @@ function act(game, c, b, dt) {
       const v = followPath(game, c, b);
       mx = v.x; mz = v.z;
       b.run = d > 20;
-    } else if (d < 5 && weaponOf(target) === 1) {
-      mx = -dx / d; mz = -dz / d; b.run = true; // back-pedal
+    } else if (d < 5 && weaponOf(target) === 1 && b.skill > 0.55) {
+      mx = -dx / d; mz = -dz / d; b.run = true; // skilled: back-pedal while shooting
       b.path = null;
     } else {
       b.path = null;
@@ -447,20 +503,21 @@ function act(game, c, b, dt) {
     const dx = target.x - c.x, dz = target.z - c.z;
     const d = Math.hypot(dx, dz);
     faceYaw = yawTo(dx, dz);
-    if (game.nav.clearLine(c.x, c.z, target.x, target.z)) { mx = dx / d; mz = dz / d; b.path = null; }
+    if (d < 1.45) { mx = 0; mz = 0; b.path = null; }  // right next to them: stop, turn and stab (no circling)
+    else if (game.nav.clearLine(c.x, c.z, target.x, target.z)) { mx = dx / d; mz = dz / d; b.path = null; }
     else {
       b.repathT -= dt;
       if (!b.path || b.repathT <= 0) setPath(game, c, b, target.x, target.z);
       const v = followPath(game, c, b); mx = v.x; mz = v.z;
     }
-    c.yaw = turnToward(c.yaw, faceYaw, 9 * dt);
+    c.yaw = turnToward(c.yaw, faceYaw, (d < 2.5 ? 14 : 9) * dt);
     c.pitch = Math.atan2(target.y + 1.1 - (c.y + P.EYE), d) * 0.6;
     if (b.wantThrow && weaponOf(c) === 1 && c.attackCd <= 0 && Math.abs(angleDiff(c.yaw, faceYaw)) < 4 * DEG) {
       b.wantThrow = false;
       c.pitch = Math.atan2(target.y + 1.1 - (c.y + P.EYE), d) + d * 0.004;
       game.hostAction(c, 'throw');
       b.state = 'retrieve';
-    } else if (d < W.KNIFE_RANGE * 0.85 && c.attackCd <= 0 && Math.abs(angleDiff(c.yaw, faceYaw)) < 30 * DEG) {
+    } else if (d < W.KNIFE_RANGE * 0.85 && c.attackCd <= 0 && Math.abs(angleDiff(c.yaw, faceYaw)) < 40 * DEG) {
       game.hostAction(c, 'attack');
     }
   } else {
@@ -475,20 +532,42 @@ function act(game, c, b, dt) {
     }
   }
 
-  // ----- local avoidance: don't bump into people, pass on the right -----
+  // ----- someone standing in the way -----
+  // Bots don't weave around people. They stop and wait; only after being blocked
+  // BLOCKS_BEFORE_DETOUR times do they walk around (or pick somewhere else to go).
   if (mx || mz) {
-    let ax = 0, az = 0;
+    let blocker = null;
     for (const o of game.chars.values()) {
       if (o === c || !o.alive || o === target) continue;
-      const dx = c.x - o.x, dz = c.z - o.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 2.2 || d < 1e-3) continue;
-      const k = (2.2 - d) / 2.2;
-      ax += (dx / d) * k * 1.4; az += (dz / d) * k * 1.4;
-      // someone ahead? sidestep to the right
-      const ahead = -(dx * mx + dz * mz) / d;
-      if (ahead > 0.6 && d < 1.8) { ax += -mz * 0.6 * k; az += mx * 0.6 * k; }
+      const dx = o.x - c.x, dz = o.z - c.z, d = Math.hypot(dx, dz);
+      if (d > 1.05 || d < 1e-3 || Math.abs(o.y - c.y) > 1.2) continue;
+      if ((dx * mx + dz * mz) / d > 0.6) { blocker = o; break; }
     }
+    if (blocker) {
+      mx = 0; mz = 0;                       // stand still
+      b.blockT += dt; b.blockCalm = 0;
+      if (b.blockT > B.BLOCK_WAIT) { b.blockT = 0; b.blockCount++; }
+      if (b.blockCount >= B.BLOCKS_BEFORE_DETOUR) {
+        b.blockCount = 0;
+        // step around them: a waypoint to the free side, then carry on
+        const dx = blocker.x - c.x, dz = blocker.z - c.z, d = Math.hypot(dx, dz) || 1;
+        let side = null;
+        for (const sgn of [1, -1]) {
+          const sx = c.x + (dx / d) * 0.4 + (-dz / d) * 1.6 * sgn, sz = c.z + (dz / d) * 0.4 + (dx / d) * 1.6 * sgn;
+          if (circleFree(game.map, sx, sz, P.RADIUS + 0.1)) { side = { x: sx, z: sz }; break; }
+        }
+        if (side && b.path) b.path.splice(b.pi, 0, side);
+        else if (side) { b.path = [side]; b.pi = 0; }
+        else { b.path = null; b.goal = null; b.waitT = 0; } // nowhere to go: pick a new destination
+      }
+    } else {
+      b.blockT = 0;
+      b.blockCalm += dt;
+      if (b.blockCalm > 6) b.blockCount = 0;
+    }
+  }
+  if (mx || mz) {
+    let ax = 0, az = 0;
     // furniture: steer around tall props, hop over / onto low ones
     for (const p of game.props.list) {
       const dx = c.x - p.x, dz = c.z - p.z;

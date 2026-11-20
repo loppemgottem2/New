@@ -1009,7 +1009,7 @@ export class Game {
         me.x += (dx / d) * (min - d); me.z += (dz / d) * (min - d);
       }
     }
-    pushOutOfProps(me, this.map, 0.35);
+    pushOutOfProps(me, this.map, 0.35, this.isHost); // the host pushes props right away for its own player
 
     // client: send my state to the host
     if (!this.isHost && this.net) {

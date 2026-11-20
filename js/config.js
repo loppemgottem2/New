@@ -35,11 +35,12 @@ export const CONFIG = {
     STOP_SPEED: 1.5,
     LAND_GRACE: 0.12,       // seconds of low friction after landing (keeps momentum when chain-jumping)
     AIR_ACCEL: 14,          // air strafing strength
-    AIR_WISH_CAP: 1.1,
+    AIR_WISH_CAP: 2.4,
     JUMP_BOOST: 0.55,       // extra speed added per running jump
     GRAVITY: 18,
     JUMP_SPEED: 6.4,        // jump apex = JUMP_SPEED^2 / (2*GRAVITY) ≈ 1.14 m
-    STEP_HEIGHT: 0.4,       // max ledge you auto-step onto
+    JUMP_COOLDOWN: 0.4,     // seconds you must be back on the ground before you can jump again
+    STEP_HEIGHT: 0.4,       // only used for map/bot-path checks: there is NO auto step-up, you must jump onto things
     STAMINA_MAX: 100,
     STAMINA_DRAIN: 16,      // per second while sprinting
     STAMINA_REGEN: 11,      // per second while not sprinting
@@ -90,6 +91,11 @@ export const CONFIG = {
     COLLECT_PARTS_RANGE: 22,      // bots only go for parts this close
     BRAVERY: 0.55,          // chance a bot goes to pick up a dropped gun
     JUMPINESS: 0.35,        // random hops per second while running away
+    BLOCKS_BEFORE_DETOUR: 3, // a bot only walks around someone after being blocked by them this many times
+    BLOCK_WAIT: 0.7,        // seconds standing still behind someone = one "block"
+    // Each bot gets a random skill (0..1) every round. Higher skill =
+    //  sheriff: faster reactions, faster/steadier aim (less spread), back-pedals while shooting
+    //  murderer: throws knives, sprints until fully out of stamina, smarter target picking
   },
 
   // ---------------- Networking ----------------
