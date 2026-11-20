@@ -401,8 +401,9 @@ export class CharacterModel {
     const bob = Math.abs(Math.sin(ph)) * 0.035 * moving;
     this.pelvis.joint.position.y = 0.92 + bob - runAmt * 0.04;
     this.pelvis.joint.rotation.y = 0; // no hip twist, so the legs move in a straight line
-    this.torso.joint.rotation.set(-runAmt * 0.18 + s.pitch * 0.15, -Math.sin(ph) * 0.2 * moving, 0);
-    this.head.joint.rotation.set(s.pitch * 0.6, Math.sin(ph) * 0.08 * moving, 0);
+    // upper body stays facing forward (no left/right sway) when walking, running or jumping
+    this.torso.joint.rotation.set(-runAmt * 0.18 + s.pitch * 0.15, 0, 0);
+    this.head.joint.rotation.set(s.pitch * 0.6, 0, 0);
 
     // in the air the arms stop swinging and just bend (elbows up, hands in front)
     const inAir = !s.onGround;

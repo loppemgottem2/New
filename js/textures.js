@@ -477,13 +477,26 @@ function shelfBooks(S) {
   return c;
 }
 
+// Takeout box: bright white paperboard, red pagoda + "THANK YOU", fold creases.
+// The 4 sides of the box are the 4 quarters of the texture (fronts at u = 0.375 and 0.875).
 function takeoutTex(S) {
-  const [c, ctx] = canvas(S);
-  ctx.fillStyle = '#f2efe6'; ctx.fillRect(0, 0, S, S);
-  ctx.fillStyle = '#c0282d'; ctx.font = 'bold 34px serif'; ctx.textAlign = 'center';
-  ctx.beginPath(); ctx.arc(S / 2, S * 0.55, 26, 0, 7); ctx.lineWidth = 4; ctx.strokeStyle = '#c0282d'; ctx.stroke();
-  ctx.fillText('福', S / 2, S * 0.55 + 12);
-  ctx.fillStyle = 'rgba(160,110,40,0.25)'; ctx.beginPath(); ctx.ellipse(S * 0.3, S * 0.85, 20, 10, 0, 0, 7); ctx.fill(); // grease stain
+  const W = 256, H = 128; const [c, ctx] = canvas(W, H);
+  paint(ctx, W, H, (u, v, x, y) => { const n = hash(x, y, 481) * 6; return [250 - n, 249 - n, 244 - n]; });
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)'; ctx.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(i * W / 4, 0); ctx.lineTo(i * W / 4, H); ctx.stroke(); } // corner creases
+  const pagoda = (cx) => {
+    ctx.fillStyle = '#c4161c';
+    ctx.beginPath(); ctx.moveTo(cx - 20, 44); ctx.quadraticCurveTo(cx, 30, cx + 20, 44); ctx.lineTo(cx + 14, 44); ctx.lineTo(cx - 14, 44); ctx.fill(); // top roof
+    ctx.fillRect(cx - 9, 44, 18, 10);
+    ctx.beginPath(); ctx.moveTo(cx - 26, 62); ctx.quadraticCurveTo(cx, 48, cx + 26, 62); ctx.lineTo(cx - 26, 62); ctx.fill();  // lower roof
+    ctx.fillRect(cx - 13, 62, 26, 14);
+    ctx.fillStyle = '#faf9f4'; ctx.fillRect(cx - 4, 66, 8, 10);                                                                // door
+    ctx.fillStyle = '#c4161c'; ctx.font = 'bold 13px Georgia, serif'; ctx.textAlign = 'center';
+    ctx.fillText('THANK YOU', cx, 96); ctx.font = '10px Georgia, serif'; ctx.fillText('ENJOY', cx, 110);
+    ctx.fillRect(cx - 26, 12, 52, 2); ctx.fillRect(cx - 26, 118, 52, 2);
+  };
+  pagoda(W * 0.375); pagoda(W * 0.875);
+  ctx.fillStyle = 'rgba(170,120,50,0.18)'; ctx.beginPath(); ctx.ellipse(W * 0.6, H * 0.85, 14, 7, 0, 0, 7); ctx.fill(); // small grease spot
   return c;
 }
 

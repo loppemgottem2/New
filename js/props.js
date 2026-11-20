@@ -27,12 +27,12 @@ export const PROP_TYPES = {
   crate:    { mass: 6.0, sound: 'wood', mu: 0.6, parts: [[0, 0.45, 0, 0.45, 0.45, 0.45]] },
   chair:    { mass: 1.4, sound: 'wood', mu: 0.5, parts: [[0, 0.455, 0, 0.22, 0.03, 0.21], [0, 0.71, 0.2, 0.22, 0.22, 0.025], [-0.19, 0.22, 0, 0.022, 0.22, 0.2], [0.19, 0.22, 0, 0.022, 0.22, 0.2]] },
   table:    { mass: 8.0, sound: 'wood', mu: 0.3, parts: [[0, 0.745, 0, 0.62, 0.025, 0.4], [-0.53, 0.36, 0, 0.03, 0.36, 0.34], [0.53, 0.36, 0, 0.03, 0.36, 0.34]] },
-  barrel:   { mass: 5.0, sound: 'metal', mu: 0.5, parts: [[0, 0.45, 0, 0.3, 0.45, 0.3], [0, 0.45, 0, 0.3, 0.45, 0.3, Math.PI / 4]] },
+  barrel:   { mass: 2.2, sound: 'metal', mu: 0.45, parts: [[0, 0.45, 0, 0.3, 0.45, 0.3], [0, 0.45, 0, 0.3, 0.45, 0.3, Math.PI / 4]] },
   mattress: { mass: 1.6, sound: 'soft', mu: 0.7, parts: [[0, 0.12, 0, 1.02, 0.12, 0.52]] },
   lamp:     { mass: 2.0, sound: 'metal', mu: 0.5, parts: [[0, 0.025, 0, 0.17, 0.025, 0.17], [0, 0.8, 0, 0.022, 0.75, 0.022], [0, 1.56, 0, 0.17, 0.12, 0.17]] },
   bottle:   { mass: 0.2, sound: 'glass', mu: 0.35, parts: [[0, 0.175, 0, 0.05, 0.175, 0.05]] },
-  trashcan: { mass: 2.5, sound: 'metal', mu: 0.5, parts: [[0, 0.32, 0, 0.24, 0.32, 0.24], [0, 0.32, 0, 0.24, 0.32, 0.24, Math.PI / 4]] },
-  takeout:  { mass: 0.15, sound: 'cardboard', mu: 0.5, parts: [[0, 0.06, 0, 0.065, 0.06, 0.055]] },
+  trashcan: { mass: 1.1, sound: 'metal', mu: 0.4, parts: [[0, 0.32, 0, 0.24, 0.32, 0.24], [0, 0.32, 0, 0.24, 0.32, 0.24, Math.PI / 4]] },
+  takeout:  { mass: 0.25, sound: 'cardboard', mu: 0.5, parts: [[0, 0.125, 0, 0.12, 0.125, 0.095]] },
 };
 
 // ---------------- shared temps ----------------
@@ -112,8 +112,18 @@ function buildGeometry() {
     GEO.trashcan = mergeParts(p);
   }
   {
-    const p = [{ geo: Cyl(0.07, 0.055, 0.11, 4), mat: 0, m: M4(0, 0.055, 0, 0, Math.PI / 4) }, { geo: new THREE.TorusGeometry(0.035, 0.004, 4, 10, Math.PI), mat: 1, m: M4(0, 0.11, 0) }];
-    GEO.takeout = mergeParts(p);
+    // classic folded "oyster pail": tapered box, closed folded top, little tabs and a wire handle
+    const pail = Cyl(0.112, 0.085, 0.15, 4); pail.rotateY(Math.PI / 4); pail.scale(1.12, 1, 0.9);
+    const lid = Cyl(0.035, 0.112, 0.04, 4); lid.rotateY(Math.PI / 4); lid.scale(1.12, 1, 0.9);
+    const tab = Box(0.05, 0.03, 0.004);
+    const handle = new THREE.TorusGeometry(0.075, 0.0035, 4, 18, Math.PI);
+    GEO.takeout = mergeParts([
+      { geo: pail, mat: 0, m: M4(0, 0.075, 0) },
+      { geo: lid, mat: 0, m: M4(0, 0.17, 0) },
+      { geo: tab, mat: 0, m: M4(0, 0.2, 0.012, 0.25) }, { geo: tab, mat: 0, m: M4(0, 0.2, -0.012, -0.25) },
+      { geo: handle, mat: 1, m: M4(0, 0.15, 0) },
+    ]);
+    GEO.takeout.scale(1.4, 1.4, 1.4);
   }
   return GEO;
 }
@@ -138,7 +148,7 @@ export class PropSystem {
         case 'barrel': return [new THREE.MeshLambertMaterial({ map: T.barrel }), new THREE.MeshLambertMaterial({ map: T.metal })];
         case 'mattress': return [new THREE.MeshLambertMaterial({ map: T.mattress })];
         case 'lamp': return [new THREE.MeshLambertMaterial({ map: T.metal }), new THREE.MeshLambertMaterial({ color: 0x333333 }), glowMat];
-        case 'bottle': return [new THREE.MeshLambertMaterial({ color: 0x6a3a12, transparent: true, opacity: 0.88 }), new THREE.MeshLambertMaterial({ color: 0xc9a227 }), new THREE.MeshLambertMaterial({ color: i % 2 ? 0xe8dcc0 : 0xd8c070 })];
+        case 'bottle': return [new THREE.MeshLambertMaterial({ color: 0x8a4a16, transparent: true, opacity: 0.9 }), new THREE.MeshLambertMaterial({ color: 0xc9a227 }), new THREE.MeshLambertMaterial({ color: i % 2 ? 0xe8dcc0 : 0xd8c070 })];
         case 'trashcan': return [new THREE.MeshLambertMaterial({ map: T.metal, color: 0x8a8f86, side: THREE.DoubleSide }), new THREE.MeshLambertMaterial({ color: 0x2a2620 }), new THREE.MeshLambertMaterial({ map: T.cardboard })];
         case 'takeout': return [new THREE.MeshLambertMaterial({ map: T.takeout }), new THREE.MeshLambertMaterial({ color: 0x999999 })];
         default: return [new THREE.MeshLambertMaterial({ color: 0x888888 })];
@@ -154,17 +164,35 @@ export class PropSystem {
         const q = new Q().setFromAxisAngle(new V(0, 1, 0), yaw);
         return { c: new V(cx - com.x, cy - com.y, cz - com.z), h: new V(hx, hy, hz), q, qi: q.clone().invert() };
       });
+      // contact points of every part: corners, points along each edge (max 0.16 m apart) and face centers,
+      // so thin things (lamp poles, mattress edges) can't slide through other props
       const corners = [];
       let mx = 0, my = 0, mz = 0;
-      for (const pt of parts) for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
-        const c = new V(sx * pt.h.x, sy * pt.h.y, sz * pt.h.z).applyQuaternion(pt.q).add(pt.c);
-        corners.push(c);
-        mx = Math.max(mx, Math.abs(c.x)); my = Math.max(my, Math.abs(c.y)); mz = Math.max(mz, Math.abs(c.z));
+      for (const pt of parts) {
+        const local = [];
+        for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) local.push([sx, sy, sz]);
+        const h = pt.h;
+        for (const [ax, la] of [['x', h.x], ['y', h.y], ['z', h.z]]) {
+          const n = Math.ceil((2 * la) / 0.16);
+          for (let k = 1; k < n; k++) {
+            const t = -1 + (2 * k) / n;
+            for (const a of [-1, 1]) for (const b2 of [-1, 1]) {
+              if (ax === 'x') local.push([t, a, b2]); else if (ax === 'y') local.push([a, t, b2]); else local.push([a, b2, t]);
+            }
+          }
+        }
+        for (const f of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) local.push(f);
+        for (const [sx, sy, sz] of local) {
+          const c = new V(sx * h.x, sy * h.y, sz * h.z).applyQuaternion(pt.q).add(pt.c);
+          corners.push(c);
+          mx = Math.max(mx, Math.abs(c.x)); my = Math.max(my, Math.abs(c.y)); mz = Math.max(mz, Math.abs(c.z));
+        }
       }
       const m = def.mass;
       const dx = 2 * mx, dy = 2 * my, dz = 2 * mz;
       const invI = new V(12 / (m * (dy * dy + dz * dz)), 12 / (m * (dx * dx + dz * dz)), 12 / (m * (dx * dx + dy * dy)));
       const mats = matsFor(s.type, id);
+      for (const mm of mats) mm.userData.base = mm.color.clone();
       const group = new THREE.Group();
       const inner = new THREE.Mesh(G[s.type], mats.length > 1 ? mats : mats[0]);
       inner.position.copy(com).multiplyScalar(-1);
@@ -172,7 +200,7 @@ export class PropSystem {
       root.add(group);
       // starting pose: yaw (+ lying on its side if tipped), resting on the floor
       const quat = new Q().setFromAxisAngle(new V(0, 1, 0), s.yaw);
-      if (s.tip) quat.multiply(new Q().setFromAxisAngle(new V(0, 0, 1), s.type === 'bottle' ? Math.PI / 2 : Math.PI / 2 * (id % 2 ? 1 : -1)));
+      if (s.tip) quat.multiply(new Q().setFromAxisAngle(new V(0, 0, 1), s.type === 'bottle' || s.tipAxis ? Math.PI / 2 : Math.PI / 2 * (id % 2 ? 1 : -1)));
       let minY = Infinity;
       for (const c of corners) minY = Math.min(minY, t1.copy(c).applyQuaternion(quat).y);
       // rest on the floor, or on top of props spawned earlier in the same spot (piles / stacks)
@@ -255,37 +283,40 @@ export class PropSystem {
   // ---------------- contacts ----------------
   // n points out of the obstacle toward body a. b may be null (world).
   contact(a, b, w, n, depth) {
+    // a resting (asleep) prop acts like solid ground until it gets hit hard enough to wake up
+    const bStatic = !b || b.asleep;
     const ra = t1.copy(w).sub(a.pos);
     const rb = b ? t2.copy(w).sub(b.pos) : null;
     const va = this.pointVel(a, ra, t3);
-    if (b) va.sub(this.pointVel(b, rb, t4));
+    if (b && !bStatic) va.sub(this.pointVel(b, rb, t4));
     const vn = va.dot(n);
-    const ia = a.invMass, ib = b ? b.invMass : 0;
+    const ia = a.invMass, ib = bStatic ? 0 : b.invMass;
     const corr = Math.min(depth, 0.2) * 0.35;
     a.pos.addScaledVector(n, corr * ia / (ia + ib));
-    if (b) b.pos.addScaledVector(n, -corr * ib / (ia + ib));
+    if (!bStatic) b.pos.addScaledVector(n, -corr * ib / (ia + ib));
     if (vn >= 0) return;
     if (vn < -2.6) this.events.push({ p: a, s: -vn });
-    const kn = this.kAlong(a, ra, n) + (b ? this.kAlong(b, rb, n) : 0);
+    // a hard hit from the side wakes the other prop (things landing ON TOP of it don't knock it loose)
+    if (b && b.asleep && vn < -2.5 && Math.abs(n.y) < 0.7) this.wake(b);
+    const kn = this.kAlong(a, ra, n) + (bStatic ? 0 : this.kAlong(b, rb, n));
     const e = vn < -2 ? 0.2 : 0;
     const j = (-(1 + e) * vn) / kn;
     const J = t4.copy(n).multiplyScalar(j);
     this.applyImpulse(a, ra, J);
-    if (b) { J.multiplyScalar(-1); this.applyImpulse(b, rb, J); }
+    if (!bStatic) { J.multiplyScalar(-1); this.applyImpulse(b, rb, J); }
     // friction
     const vb = this.pointVel(a, ra, new V());
-    if (b) vb.sub(this.pointVel(b, rb, new V()));
+    if (!bStatic) vb.sub(this.pointVel(b, rb, new V()));
     const vt = vb.addScaledVector(n, -vb.dot(n));
     const lt = vt.length();
     if (lt > 1e-5) {
       vt.multiplyScalar(1 / lt);
-      const kt = this.kAlong(a, ra, vt) + (b ? this.kAlong(b, rb, vt) : 0);
+      const kt = this.kAlong(a, ra, vt) + (bStatic ? 0 : this.kAlong(b, rb, vt));
       const jt = Math.min(lt / kt, a.mu * j);
       const Jt = vt.multiplyScalar(-jt);
       this.applyImpulse(a, ra, Jt);
-      if (b) { Jt.multiplyScalar(-1); this.applyImpulse(b, rb, Jt); }
+      if (!bStatic) { Jt.multiplyScalar(-1); this.applyImpulse(b, rb, Jt); }
     }
-    if (b && b.asleep && j > 0.4) this.wake(b);
   }
 
   collideWorld(p) {
@@ -310,8 +341,9 @@ export class PropSystem {
     return touching;
   }
 
-  // corners of a inside parts of b
-  collidePair(a, b) {
+  // contact points of a inside parts of b.
+  // flip = true: a is resting, so push b (the moving one) out instead of a.
+  collidePair(a, b, flip = false) {
     const w = new V(), l = new V(), n = new V();
     for (const c of a.corners) {
       w.copy(c).applyQuaternion(a.quat).add(a.pos);
@@ -324,7 +356,8 @@ export class PropSystem {
         else if (py < pz) n.set(0, Math.sign(l.y) || 1, 0);
         else n.set(0, 0, Math.sign(l.z) || 1);
         n.applyQuaternion(part.q).applyQuaternion(b.quat);
-        this.contact(a, b, w, n, Math.min(px, py, pz));
+        if (flip) { n.multiplyScalar(-1); this.contact(b, a, w, n, Math.min(px, py, pz)); }
+        else this.contact(a, b, w, n, Math.min(px, py, pz));
       }
     }
   }
@@ -464,7 +497,7 @@ export class PropSystem {
             const dd = p.bound + o.bound;
             if (p.pos.distanceToSquared(o.pos) > dd * dd) continue;
             this.collidePair(p, o);
-            if (o.asleep) this.collidePair(o, p);
+            if (o.asleep) this.collidePair(o, p, true);
           }
         }
       }
@@ -523,7 +556,8 @@ export class PropSystem {
         p.lightT = 0.4 + Math.random() * 0.3;
         this.map.probe(p.rpos.x, p.rpos.z, !lampsDynamic, p.light);
         const lum = 0.3 * p.light[0] + 0.55 * p.light[1] + 0.15 * p.light[2];
-        for (const m of p.mats) m.color.setRGB(lum * 0.8 + p.light[0] * 0.2, lum * 0.8 + p.light[1] * 0.2, lum * 0.8 + p.light[2] * 0.2);
+        const tr = lum * 0.8 + p.light[0] * 0.2, tg = lum * 0.8 + p.light[1] * 0.2, tb = lum * 0.8 + p.light[2] * 0.2;
+        for (const m of p.mats) { const b = m.userData.base; m.color.setRGB(b.r * tr, b.g * tg, b.b * tb); }
       }
     }
   }
