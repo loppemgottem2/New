@@ -9,7 +9,7 @@ survive, collect **gun parts**, and figure out who the killer is.
 - 🤖 Bots fill empty slots: A* pathfinding, line-of-sight vision, suspicion, fleeing, jumping, aiming with reaction time
 - 🏢 Big 120 m map: office, cafeteria, storage, lobby, gym, library, workshop, courtyard and parking lot
 - 💡 Pre-computed ("baked") lighting from every ceiling light + sun shadows + ambient occlusion + grime, and optional real-time lights
-- 🪑 Movable physics furniture (chairs, tables, boxes, crates, barrels) — push it, shoot it, stand on it
+- 🪑 Real rigid-body furniture (chairs, tables, boxes, crates, barrels, mattresses, lamps, bottles) with per-part hitboxes — push it, shoot it, knock it over, stand on it
 - 🧍 Character editor: name, hairstyle, face, skin, shirt and pants types/colors. Ragdolls on death
 - 🔪 Murderer (stab + throw knife), 🔫 Sheriff (shooting an innocent kills the Sheriff too), 🧩 5 gun parts → build a revolver
 - 🎥 First person or third person (zoom in/out), lots of settings, available mid-match from the ⚙ button
@@ -66,7 +66,7 @@ then open http://localhost:8000
 | Draw / hide weapon | DRAW / HIDE | Q |
 | Stab / shoot | big red button | Left click |
 | Throw knife (murderer) | THROW | Right click / G |
-| Zoom camera / third person | ＋ / － | Mouse wheel / V |
+| Zoom camera / third person | Pinch with two fingers | Mouse wheel / V |
 | Settings | ⚙ | ⚙ / Esc / P |
 | Scoreboard | ☰ | Tab |
 | Next spectate target | ▶ | F / click |
@@ -81,8 +81,8 @@ then open http://localhost:8000
 | File | What's in it |
 |---|---|
 | `js/config.js` | **Every tunable number**: speeds, jump, stamina, weapon range/cooldowns, round time, bot count, bot aim/vision/suspicion, network settings |
-| `js/map.js` | **The map as ASCII art** — edit the `LAYOUT` text to redesign the level (floors `. , ; _ o a`, `#` wall, `P` pillar, `Q` shelf, `W` counter, furniture `B C K T X`, `S` spawn, `G` gun part spot). Also the baked lighting |
-| `js/props.js` | Movable physics furniture |
+| `js/map.js` | **The map as ASCII art** — edit the `LAYOUT` text to redesign the level (floors `. , ; _ o a ~`, `#` wall, `P` pillar, `Q` shelf, `W` counter, furniture `B C K T X M L b`, `S` spawn, `G` gun part spot). Also the baked lighting |
+| `js/props.js` | Rigid-body furniture: each prop's box hitboxes (`PROP_TYPES`), looks, physics |
 | `js/game.js` | Rounds, roles, combat, gun parts, item pickups, events, camera, network messages |
 | `js/bots.js` | Bot AI: perception, suspicion, flee, sheriff aiming, murderer hunting |
 | `js/nav.js` | A* pathfinding grid + path smoothing |

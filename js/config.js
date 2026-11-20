@@ -69,8 +69,8 @@ export const CONFIG = {
 
   // ---------------- Bots ----------------
   BOTS: {
-    NAMES: ['Bot Arnold', 'Bot Bella', 'Bot Carl', 'Bot Dina', 'Bot Eddie', 'Bot Fay', 'Bot Gus', 'Bot Hana',
-            'Bot Ivan', 'Bot Jules', 'Bot Kurt', 'Bot Lena', 'Bot Milo', 'Bot Nora', 'Bot Otto', 'Bot Pia'],
+    NAMES: ['Arnold', 'Bella', 'Carl', 'Dina', 'Eddie', 'Fay', 'Gus', 'Hana',
+            'Ivan', 'Jules', 'Kurt', 'Lena', 'Milo', 'Nora', 'Otto', 'Pia'],
     VIEW_DISTANCE: 28,      // meters they can see
     FOV_DEG: 120,           // field of view
     CLOSE_SENSE: 3.5,       // always notice people this close (hearing)

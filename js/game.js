@@ -379,7 +379,7 @@ export class Game {
       this.hostAction(c, m.a);
     } else if (m.t === 'chat') {
       const text = String(m.m || '').slice(0, 120);
-      if (text) this.emit({ e: 'chat', from: c.alive ? c.bname : c.nick, color: c.color, text });
+      if (text) this.emit({ e: 'chat', from: c.nick, color: c.color, text });
     }
   }
 
@@ -472,7 +472,7 @@ export class Game {
     const ph = this.props.raycast(ox, oy, oz, d.x, d.y, d.z, ht);
     if (ph) {
       hit = null; ht = ph.t;
-      this.props.impulse(ph.prop, d.x * 16, 3, d.z * 16, (Math.random() - 0.5) * 10);
+      this.props.impulseAt(ph.prop, ph.point, new THREE.Vector3(d.x * 7, d.y * 7 + 1, d.z * 7));
     }
     this.emit({ e: 'shot', id: c.id, f: [r2(ox), r2(oy - 0.15), r2(oz)], t: [r2(ox + d.x * ht), r2(oy + d.y * ht), r2(oz + d.z * ht)] });
     botsOnShot(this, c, hit);
@@ -536,7 +536,7 @@ export class Game {
         const ph = this.props.raycast(it.x, it.y, it.z, dx, dy, dz, ht);
         if (ph) {
           hit = null;
-          this.props.impulse(ph.prop, dx * 4, 1, dz * 4, 3);
+          this.props.impulseAt(ph.prop, ph.point, new THREE.Vector3(dx * 3, dy * 3, dz * 3));
           it.x += dx * Math.max(0, ph.t - 0.1); it.y += dy * Math.max(0, ph.t - 0.1); it.z += dz * Math.max(0, ph.t - 0.1);
           it.flying = false;
           it.y = groundHeight(this.map, it.x, it.z, 0.1, it.y + 0.3) + 0.05;
@@ -710,9 +710,9 @@ export class Game {
         const R = {
           murderer: ['You are the Murderer', 'Kill everyone. Don\'t get caught.', '#e33'],
           sheriff: ['You are the Sheriff', 'You have a revolver. Find the murderer and shoot them — but never an innocent.', '#4af'],
-          innocent: ['You are a Bystander', 'There is a murderer among us. Collect gun parts, stay alive.', '#4af'],
         }[ev.role];
         if (R) ui.bigMessage(R[0], R[1], R[2], 4.5);
+        else if (ev.role === 'innocent') ui.toast('There is a murderer among us. Stay alive and collect gun parts.', '#ddd', 5);
         Audio.roundStart(ev.role === 'murderer');
         break;
       }
@@ -728,7 +728,7 @@ export class Game {
         if (ev.phase === 'post') {
           const good = ev.winner === 'bystanders';
           const m = ev.murderer;
-          const sub = (m ? `The murderer was <b style="color:${textColor(m.color)}">${m.bname}</b> (${escapeHtml(m.nick)})` : '') + (ev.reason ? `<br>${ev.reason}` : '');
+          const sub = (m ? `The murderer was <b style="color:${textColor(m.color)}">${escapeHtml(m.nick)}</b>` : '') + (ev.reason ? `<br>${ev.reason}` : '');
           ui.bigMessage(good ? 'Bystanders Win!' : 'The Murderer Wins!', sub, good ? '#4af' : '#e33', CONFIG.ROUND.POST_TIME - 0.5, true);
           const meGood = this.myRole !== 'murderer';
           Audio.roundEnd(good === meGood);
@@ -1009,7 +1009,7 @@ export class Game {
         me.x += (dx / d) * (min - d); me.z += (dz / d) * (min - d);
       }
     }
-    pushOutOfProps(me, this.props.list, 0.35);
+    pushOutOfProps(me, this.map, 0.35);
 
     // client: send my state to the host
     if (!this.isHost && this.net) {
@@ -1127,9 +1127,16 @@ export class Game {
         // over-the-shoulder camera, pulled in when a wall is in the way
         const d = dirFromAngles(me.yaw, me.pitch);
         const rx = Math.cos(me.yaw), rz = -Math.sin(me.yaw);
-        const side = 0.38 * Math.min(1, this.camDist / 1.5);
-        const px = ex + rx * side, py = ey + 0.12, pz = ez + rz * side;
-        let dist = this.camDist;
+        // weapon out -> tighter over-the-right-shoulder view for aiming
+        const aiming = weaponOf(me) !== 0;
+        const tSide = aiming ? 0.68 : 0.38 * Math.min(1, this.camDist / 1.5);
+        const tDist = aiming ? Math.min(this.camDist, 1.8) : this.camDist;
+        const kk = Math.min(1, dt * 8);
+        this._side = (this._side ?? tSide) + (tSide - (this._side ?? tSide)) * kk;
+        this._tdist = (this._tdist ?? tDist) + (tDist - (this._tdist ?? tDist)) * kk;
+        const side = this._side;
+        const px = ex + rx * side, py = ey + (aiming ? 0.2 : 0.12), pz = ez + rz * side;
+        let dist = this._tdist;
         const sideHit = raycastMap(this.map, ex, ey, ez, rx, 0, rz, side + 0.2);
         const spx = sideHit < side + 0.2 ? ex + rx * Math.max(0, sideHit - 0.2) : px, spz = sideHit < side + 0.2 ? ez + rz * Math.max(0, sideHit - 0.2) : pz;
         const hit = raycastMap(this.map, spx, py, spz, -d.x, -d.y, -d.z, dist + 0.3);
@@ -1197,7 +1204,7 @@ export class Game {
         for (const rd of this.ragdolls.values()) {
           const c = rd.center;
           const t = rayVsCharacter(cp.x, cp.y, cp.z, d.x, d.y, d.z, { x: c.x, y: c.y - 0.5, z: c.z }, 0.6);
-          if (t >= 0 && t < Math.min(bt, 6 + (this._camActualDist || 0))) { look = { bname: 'Dead body', color: 0x999999, corpse: true }; break; }
+          if (t >= 0 && t < Math.min(bt, 6 + (this._camActualDist || 0))) { look = { nick: 'Dead body', color: 0x999999, corpse: true }; break; }
         }
       }
     }

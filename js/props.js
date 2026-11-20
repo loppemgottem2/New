@@ -1,37 +1,53 @@
 // =====================================================================
-//  PROPS.JS — movable physics furniture (boxes, crates, chairs, tables,
-//  barrels). The host simulates them; clients just show them.
-//  Collision shape = upright cylinder (radius r, height h) so pushing,
-//  sliding and standing on them is smooth and cheap.
+//  PROPS.JS — movable physics furniture with REAL rigid-body physics.
+//
+//  Each prop is built from a few boxes ("parts") — e.g. a chair is a
+//  seat, a backrest and two leg frames. Those boxes are its hitbox for
+//  bullets, knives, people, ragdolls and other props. Props have mass,
+//  gravity, spin, and can tip / fall over (push a lamp near the top!).
+//
+//  The host simulates; clients receive position + rotation.
+//  To add a new prop: add an entry to PROP_TYPES (collision parts) and to
+//  buildGeometry() (what it looks like), then give it a letter in map.js.
 // =====================================================================
 import * as THREE from '../vendor/three.module.min.js';
 import { CONFIG } from './config.js';
-import { resolveWalls, groundHeightCells } from './physics.js';
+import { CELL, CEIL_H, WALL_H } from './map.js';
 
+const V = THREE.Vector3, Q = THREE.Quaternion;
+const GRAV = 18;
+// heights (above the feet) where a character's body is tested against props
+const CHAR_SAMPLES = [0.45, 0.65, 0.85, 1.05, 1.25, 1.45, 1.65];
+const P = CONFIG.PLAYER;
+
+// parts: [cx, cy, cz, hx, hy, hz, yaw?] — box center + half sizes, origin = bottom center of the prop
 export const PROP_TYPES = {
-  box:    { r: 0.33, h: 0.58, mass: 1.2, sound: 'cardboard' },
-  crate:  { r: 0.5,  h: 0.92, mass: 6.0, sound: 'wood' },
-  chair:  { r: 0.29, h: 0.47, mass: 1.0, sound: 'wood' },
-  table:  { r: 0.62, h: 0.76, mass: 3.5, sound: 'wood' },
-  barrel: { r: 0.33, h: 0.94, mass: 4.5, sound: 'metal' },
+  box:      { mass: 1.2, sound: 'cardboard', mu: 0.6, parts: [[0, 0.28, 0, 0.3, 0.28, 0.28]] },
+  crate:    { mass: 6.0, sound: 'wood', mu: 0.6, parts: [[0, 0.45, 0, 0.45, 0.45, 0.45]] },
+  chair:    { mass: 1.4, sound: 'wood', mu: 0.5, parts: [[0, 0.455, 0, 0.22, 0.03, 0.21], [0, 0.71, 0.2, 0.22, 0.22, 0.025], [-0.19, 0.22, 0, 0.022, 0.22, 0.2], [0.19, 0.22, 0, 0.022, 0.22, 0.2]] },
+  table:    { mass: 8.0, sound: 'wood', mu: 0.3, parts: [[0, 0.745, 0, 0.62, 0.025, 0.4], [-0.53, 0.36, 0, 0.03, 0.36, 0.34], [0.53, 0.36, 0, 0.03, 0.36, 0.34]] },
+  barrel:   { mass: 5.0, sound: 'metal', mu: 0.5, parts: [[0, 0.45, 0, 0.3, 0.45, 0.3], [0, 0.45, 0, 0.3, 0.45, 0.3, Math.PI / 4]] },
+  mattress: { mass: 3.0, sound: 'soft', mu: 0.9, parts: [[0, 0.1, 0, 0.95, 0.1, 0.45]] },
+  lamp:     { mass: 2.0, sound: 'metal', mu: 0.5, parts: [[0, 0.025, 0, 0.17, 0.025, 0.17], [0, 0.8, 0, 0.022, 0.75, 0.022], [0, 1.56, 0, 0.17, 0.12, 0.17]] },
+  bottle:   { mass: 0.35, sound: 'glass', mu: 0.4, parts: [[0, 0.12, 0, 0.036, 0.12, 0.036]] },
 };
-const TYPE_IDS = Object.keys(PROP_TYPES);
-const CHAR_MASS = 3;
-const FRICTION = 7;     // m/s^2 sliding friction
-const r2 = (v) => Math.round(v * 100) / 100;
 
-// ---------- geometry helpers ----------
+// ---------------- shared temps ----------------
+const t1 = new V(), t2 = new V(), t3 = new V(), t4 = new V(), t5 = new V(), t6 = new V();
+const tq = new Q(), tq2 = new Q();
+const r2 = (v) => Math.round(v * 100) / 100;
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+// ---------------- geometry ----------------
 function mergeParts(parts) {
-  // parts: [{geo, mat (index), m: Matrix4}] -> one BufferGeometry with material groups
   const pos = [], nor = [], uv = [], groups = [];
   let start = 0;
   parts.sort((a, b) => a.mat - b.mat);
   for (const p of parts) {
     const g = p.geo.index ? p.geo.toNonIndexed() : p.geo.clone();
     g.applyMatrix4(p.m);
-    const P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array;
-    pos.push(...P); nor.push(...N); uv.push(...U);
-    const count = P.length / 3;
+    pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); uv.push(...g.attributes.uv.array);
+    const count = g.attributes.position.count;
     const last = groups[groups.length - 1];
     if (last && last.mat === p.mat) last.count += count; else groups.push({ start, count, mat: p.mat });
     start += count;
@@ -44,39 +60,50 @@ function mergeParts(parts) {
   out.computeBoundingSphere();
   return out;
 }
-const M = (x, y, z, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1));
+const M4 = (x, y, z, rx = 0, ry = 0, rz = 0) => new THREE.Matrix4().compose(new V(x, y, z), new Q().setFromEuler(new THREE.Euler(rx, ry, rz)), new V(1, 1, 1));
 
 let GEO = null;
-function geometries() {
+function buildGeometry() {
   if (GEO) return GEO;
   GEO = {};
-  GEO.box = mergeParts([{ geo: new THREE.BoxGeometry(0.6, 0.56, 0.56), mat: 0, m: M(0, 0.28, 0) }]);
-  GEO.crate = mergeParts([{ geo: new THREE.BoxGeometry(0.9, 0.9, 0.9), mat: 0, m: M(0, 0.45, 0) }]);
+  const Box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const Cyl = (a, b, h, s = 10, open = false) => new THREE.CylinderGeometry(a, b, h, s, 1, open);
+  GEO.box = mergeParts([{ geo: Box(0.6, 0.56, 0.56), mat: 0, m: M4(0, 0.28, 0) }]);
+  GEO.crate = mergeParts([{ geo: Box(0.9, 0.9, 0.9), mat: 0, m: M4(0, 0.45, 0) }]);
   {
-    const p = [];
-    p.push({ geo: new THREE.BoxGeometry(0.44, 0.05, 0.42), mat: 0, m: M(0, 0.45, 0) });          // seat
-    p.push({ geo: new THREE.BoxGeometry(0.44, 0.42, 0.04), mat: 0, m: M(0, 0.7, 0.2, -0.08) });   // back (behind = +z)
-    for (const [x, z] of [[-0.19, -0.18], [0.19, -0.18], [-0.19, 0.18], [0.19, 0.18]]) p.push({ geo: new THREE.CylinderGeometry(0.018, 0.016, 0.44, 6), mat: 1, m: M(x, 0.22, z) });
-    for (const x of [-0.19, 0.19]) p.push({ geo: new THREE.CylinderGeometry(0.016, 0.016, 0.46, 6), mat: 1, m: M(x, 0.68, 0.205, -0.08) });
+    const p = [{ geo: Box(0.44, 0.05, 0.42), mat: 0, m: M4(0, 0.455, 0) }, { geo: Box(0.44, 0.42, 0.04), mat: 0, m: M4(0, 0.71, 0.2) }];
+    for (const [x, z] of [[-0.19, -0.18], [0.19, -0.18], [-0.19, 0.18], [0.19, 0.18]]) p.push({ geo: Cyl(0.018, 0.016, 0.44, 6), mat: 1, m: M4(x, 0.22, z) });
+    p.push({ geo: Cyl(0.012, 0.012, 0.36, 6), mat: 1, m: M4(-0.19, 0.08, 0, Math.PI / 2) }, { geo: Cyl(0.012, 0.012, 0.36, 6), mat: 1, m: M4(0.19, 0.08, 0, Math.PI / 2) });
     GEO.chair = mergeParts(p);
   }
   {
-    const p = [];
-    p.push({ geo: new THREE.CylinderGeometry(0.62, 0.62, 0.045, 24), mat: 0, m: M(0, 0.74, 0) });
-    p.push({ geo: new THREE.CylinderGeometry(0.045, 0.055, 0.7, 10), mat: 1, m: M(0, 0.37, 0) });
-    p.push({ geo: new THREE.CylinderGeometry(0.32, 0.34, 0.04, 16), mat: 1, m: M(0, 0.02, 0) });
+    const p = [{ geo: Box(1.24, 0.05, 0.8), mat: 0, m: M4(0, 0.745, 0) }];
+    for (const [x, z] of [[-0.55, -0.33], [0.55, -0.33], [-0.55, 0.33], [0.55, 0.33]]) p.push({ geo: Cyl(0.025, 0.022, 0.72, 8), mat: 1, m: M4(x, 0.36, z) });
+    p.push({ geo: Box(0.03, 0.04, 0.7), mat: 1, m: M4(-0.55, 0.1, 0) }, { geo: Box(0.03, 0.04, 0.7), mat: 1, m: M4(0.55, 0.1, 0) });
     GEO.table = mergeParts(p);
   }
   {
-    const p = [];
-    p.push({ geo: new THREE.CylinderGeometry(0.31, 0.31, 0.9, 18, 1, true), mat: 0, m: M(0, 0.45, 0) });
-    p.push({ geo: new THREE.CircleGeometry(0.31, 18), mat: 1, m: M(0, 0.9, 0, -Math.PI / 2) });
-    for (const y of [0.04, 0.3, 0.6, 0.86]) p.push({ geo: new THREE.TorusGeometry(0.315, 0.018, 4, 18), mat: 1, m: M(0, y, 0, Math.PI / 2) });
+    const p = [{ geo: Cyl(0.31, 0.31, 0.9, 18, true), mat: 0, m: M4(0, 0.45, 0) }, { geo: new THREE.CircleGeometry(0.31, 18), mat: 1, m: M4(0, 0.9, 0, -Math.PI / 2) }, { geo: new THREE.CircleGeometry(0.31, 18), mat: 1, m: M4(0, 0.0, 0, Math.PI / 2) }];
+    for (const y of [0.04, 0.3, 0.6, 0.86]) p.push({ geo: new THREE.TorusGeometry(0.315, 0.018, 4, 18), mat: 1, m: M4(0, y, 0, Math.PI / 2) });
     GEO.barrel = mergeParts(p);
   }
+  GEO.mattress = mergeParts([{ geo: Box(1.9, 0.2, 0.9), mat: 0, m: M4(0, 0.1, 0) }, { geo: Box(0.5, 0.08, 0.32), mat: 0, m: M4(0.62, 0.23, 0, 0, 0, 0.05) }]);
+  GEO.lamp = mergeParts([
+    { geo: Cyl(0.17, 0.17, 0.05, 16), mat: 1, m: M4(0, 0.025, 0) },
+    { geo: Cyl(0.018, 0.018, 1.5, 8), mat: 1, m: M4(0, 0.8, 0) },
+    { geo: Cyl(0.1, 0.18, 0.24, 16, true), mat: 2, m: M4(0, 1.56, 0) },
+    { geo: new THREE.SphereGeometry(0.05, 8, 6), mat: 2, m: M4(0, 1.5, 0) },
+  ]);
+  GEO.bottle = mergeParts([
+    { geo: Cyl(0.034, 0.034, 0.16, 10), mat: 0, m: M4(0, 0.08, 0) },
+    { geo: Cyl(0.013, 0.03, 0.05, 10), mat: 0, m: M4(0, 0.185, 0) },
+    { geo: Cyl(0.013, 0.013, 0.05, 8), mat: 0, m: M4(0, 0.235, 0) },
+    { geo: Cyl(0.015, 0.015, 0.01, 8), mat: 1, m: M4(0, 0.262, 0) },
+  ]);
   return GEO;
 }
 
+// =====================================================================
 export class PropSystem {
   constructor(map, root, T, isHost) {
     this.map = map;
@@ -85,169 +112,359 @@ export class PropSystem {
     this.list = [];
     this.lastSent = new Map();
     this.fullT = 0;
-    this.events = []; // impact sounds etc. drained by the game
-    const G = geometries();
-    const mats = {
-      box: [T.cardboard], crate: [T.crate], chair: [T.wood, T.metal], table: [T.wood, T.metal], barrel: [T.barrel, T.metal],
+    this.events = [];
+    const G = buildGeometry();
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xffe1a8, side: THREE.DoubleSide });
+    const matsFor = (type, i) => {
+      switch (type) {
+        case 'box': return [new THREE.MeshLambertMaterial({ map: T.cardboard })];
+        case 'crate': return [new THREE.MeshLambertMaterial({ map: T.crate })];
+        case 'chair': case 'table': return [new THREE.MeshLambertMaterial({ map: T.wood }), new THREE.MeshLambertMaterial({ map: T.metal })];
+        case 'barrel': return [new THREE.MeshLambertMaterial({ map: T.barrel }), new THREE.MeshLambertMaterial({ map: T.metal })];
+        case 'mattress': return [new THREE.MeshLambertMaterial({ map: T.mattress })];
+        case 'lamp': return [new THREE.MeshLambertMaterial({ map: T.metal }), new THREE.MeshLambertMaterial({ color: 0x333333 }), glowMat];
+        case 'bottle': return [new THREE.MeshLambertMaterial({ color: i % 3 ? 0x2f6b2a : 0x6b3e14, transparent: true, opacity: 0.85 }), new THREE.MeshLambertMaterial({ color: 0xc9a227 })];
+        default: return [new THREE.MeshLambertMaterial({ color: 0x888888 })];
+      }
     };
     map.propSpawns.forEach((s, id) => {
       const def = PROP_TYPES[s.type];
-      const ms = mats[s.type].map((t) => new THREE.MeshLambertMaterial({ map: t }));
-      const mesh = new THREE.Mesh(G[s.type], ms.length > 1 ? ms : ms[0]);
-      mesh.matrixAutoUpdate = true;
-      root.add(mesh);
+      // parts relative to the center of mass
+      let vol = 0; const com = new V();
+      for (const [cx, cy, cz, hx, hy, hz] of def.parts) { const v = hx * hy * hz; vol += v; com.x += cx * v; com.y += cy * v; com.z += cz * v; }
+      com.multiplyScalar(1 / vol);
+      const parts = def.parts.map(([cx, cy, cz, hx, hy, hz, yaw = 0]) => {
+        const q = new Q().setFromAxisAngle(new V(0, 1, 0), yaw);
+        return { c: new V(cx - com.x, cy - com.y, cz - com.z), h: new V(hx, hy, hz), q, qi: q.clone().invert() };
+      });
+      const corners = [];
+      let mx = 0, my = 0, mz = 0;
+      for (const pt of parts) for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        const c = new V(sx * pt.h.x, sy * pt.h.y, sz * pt.h.z).applyQuaternion(pt.q).add(pt.c);
+        corners.push(c);
+        mx = Math.max(mx, Math.abs(c.x)); my = Math.max(my, Math.abs(c.y)); mz = Math.max(mz, Math.abs(c.z));
+      }
+      const m = def.mass;
+      const dx = 2 * mx, dy = 2 * my, dz = 2 * mz;
+      const invI = new V(12 / (m * (dy * dy + dz * dz)), 12 / (m * (dx * dx + dz * dz)), 12 / (m * (dx * dx + dy * dy)));
+      const mats = matsFor(s.type, id);
+      const group = new THREE.Group();
+      const inner = new THREE.Mesh(G[s.type], mats.length > 1 ? mats : mats[0]);
+      inner.position.copy(com).multiplyScalar(-1);
+      group.add(inner);
+      root.add(group);
+      // starting pose: yaw (+ lying on its side if tipped), resting on the floor
+      const quat = new Q().setFromAxisAngle(new V(0, 1, 0), s.yaw);
+      if (s.tip) quat.multiply(new Q().setFromAxisAngle(new V(0, 0, 1), s.type === 'bottle' ? Math.PI / 2 : Math.PI / 2 * (id % 2 ? 1 : -1)));
+      let minY = Infinity;
+      for (const c of corners) minY = Math.min(minY, t1.copy(c).applyQuaternion(quat).y);
+      const pos = new V(s.x, -minY + 0.002, s.z);
       const p = {
-        id, type: s.type, def, r: def.r, h: def.h, mass: def.mass,
-        x: s.x, y: 0, z: s.z, yaw: s.yaw, vx: 0, vy: 0, vz: 0, spin: 0,
-        home: { x: s.x, z: s.z, yaw: s.yaw }, sleep: 99, mesh, mats: ms,
-        rx: s.x, ry: 0, rz: s.z, ryaw: s.yaw, lightT: 0, light: [1, 1, 1],
+        id, type: s.type, def, mass: m, invMass: 1 / m, invI, com, parts, corners, mu: def.mu,
+        bound: Math.max(...corners.map((c) => c.length())),
+        pos, quat, vel: new V(), ang: new V(),
+        home: { pos: pos.clone(), quat: quat.clone() },
+        sleepT: 0, asleep: true, mesh: group, mats: mats.filter((mm) => mm !== glowMat),
+        rpos: pos.clone(), rquat: quat.clone(), lightT: 0, light: [1, 1, 1],
+        x: 0, y: 0, z: 0, r: 0, h: 0, top: 0,
       };
+      this.updateBounds(p);
       this.list.push(p);
     });
+    map.propSys = this;
     map.props = this.list;
-    this.tint = new THREE.Color();
+  }
+
+  // keep simple fields used elsewhere: x/z center, y bottom, top, h, r (horizontal reach)
+  updateBounds(p) {
+    let lo = Infinity, hi = -Infinity, rr = 0;
+    for (const c of p.corners) {
+      t1.copy(c).applyQuaternion(p.quat);
+      lo = Math.min(lo, t1.y); hi = Math.max(hi, t1.y);
+      rr = Math.max(rr, Math.hypot(t1.x, t1.z));
+    }
+    p.x = p.pos.x; p.z = p.pos.z; p.y = p.pos.y + lo; p.top = p.pos.y + hi; p.h = hi - lo; p.r = rr;
   }
 
   reset() {
     for (const p of this.list) {
-      p.x = p.home.x; p.z = p.home.z; p.y = 0; p.yaw = p.home.yaw;
-      p.vx = p.vy = p.vz = p.spin = 0; p.sleep = 99;
-      p.rx = p.x; p.rz = p.z; p.ry = 0; p.ryaw = p.yaw; p.lightT = 0;
+      p.pos.copy(p.home.pos); p.quat.copy(p.home.quat); p.vel.set(0, 0, 0); p.ang.set(0, 0, 0);
+      p.asleep = true; p.sleepT = 0; p.rpos.copy(p.pos); p.rquat.copy(p.quat); p.lightT = 0;
+      this.updateBounds(p);
     }
     this.fullT = 0;
   }
 
-  wake(p) { p.sleep = 0; }
+  // ---------------- math helpers ----------------
+  wake(p) { p.asleep = false; p.sleepT = 0; }
+  invIWorld(p, v, out) {
+    tq.copy(p.quat).invert();
+    out.copy(v).applyQuaternion(tq);
+    out.x *= p.invI.x; out.y *= p.invI.y; out.z *= p.invI.z;
+    return out.applyQuaternion(p.quat);
+  }
+  pointVel(p, r, out) { return out.crossVectors(p.ang, r).add(p.vel); }
+  applyImpulse(p, r, J) {
+    p.vel.addScaledVector(J, p.invMass);
+    p.ang.add(this.invIWorld(p, t6.crossVectors(r, J), t5));
+  }
+  // effective inverse mass along direction n at offset r
+  kAlong(p, r, n) {
+    const rxn = t5.crossVectors(r, n);
+    const w = this.invIWorld(p, rxn, t6);
+    return p.invMass + n.dot(t5.crossVectors(w, r));
+  }
+  toPartLocal(p, part, w, out) {
+    tq.copy(p.quat).invert();
+    out.copy(w).sub(p.pos).applyQuaternion(tq).sub(part.c).applyQuaternion(part.qi);
+    return out;
+  }
+  fromPartLocal(p, part, l, out) { return out.copy(l).applyQuaternion(part.q).add(part.c).applyQuaternion(p.quat).add(p.pos); }
 
-  // Push a prop (bullets, knives)
+  // Push a prop (bullets, knives, explosions) at a world point
+  impulseAt(p, point, J) {
+    this.applyImpulse(p, t3.copy(point).sub(p.pos), J);
+    this.wake(p);
+  }
+  // old API: push at the center (+ spin)
   impulse(p, ix, iy, iz, spin = 0) {
-    p.vx += ix / p.mass; p.vy += iy / p.mass; p.vz += iz / p.mass;
-    p.spin += spin / p.mass;
+    p.vel.x += ix * p.invMass; p.vel.y += iy * p.invMass; p.vel.z += iz * p.invMass;
+    p.ang.y += spin * p.invMass;
     this.wake(p);
   }
 
-  // Ray vs prop cylinders. Returns {prop, t} of the nearest hit or null.
+  // ---------------- contacts ----------------
+  // n points out of the obstacle toward body a. b may be null (world).
+  contact(a, b, w, n, depth) {
+    const ra = t1.copy(w).sub(a.pos);
+    const rb = b ? t2.copy(w).sub(b.pos) : null;
+    const va = this.pointVel(a, ra, t3);
+    if (b) va.sub(this.pointVel(b, rb, t4));
+    const vn = va.dot(n);
+    const ia = a.invMass, ib = b ? b.invMass : 0;
+    const corr = Math.min(depth, 0.2) * 0.35;
+    a.pos.addScaledVector(n, corr * ia / (ia + ib));
+    if (b) b.pos.addScaledVector(n, -corr * ib / (ia + ib));
+    if (vn >= 0) return;
+    if (vn < -2.6) this.events.push({ p: a, s: -vn });
+    const kn = this.kAlong(a, ra, n) + (b ? this.kAlong(b, rb, n) : 0);
+    const e = vn < -2 ? 0.2 : 0;
+    const j = (-(1 + e) * vn) / kn;
+    const J = t4.copy(n).multiplyScalar(j);
+    this.applyImpulse(a, ra, J);
+    if (b) { J.multiplyScalar(-1); this.applyImpulse(b, rb, J); }
+    // friction
+    const vb = this.pointVel(a, ra, new V());
+    if (b) vb.sub(this.pointVel(b, rb, new V()));
+    const vt = vb.addScaledVector(n, -vb.dot(n));
+    const lt = vt.length();
+    if (lt > 1e-5) {
+      vt.multiplyScalar(1 / lt);
+      const kt = this.kAlong(a, ra, vt) + (b ? this.kAlong(b, rb, vt) : 0);
+      const jt = Math.min(lt / kt, a.mu * j);
+      const Jt = vt.multiplyScalar(-jt);
+      this.applyImpulse(a, ra, Jt);
+      if (b) { Jt.multiplyScalar(-1); this.applyImpulse(b, rb, Jt); }
+    }
+    if (b && b.asleep && j > 0.4) this.wake(b);
+  }
+
+  collideWorld(p) {
+    const map = this.map;
+    const w = new V(), n = new V();
+    let touching = false;
+    for (const c of p.corners) {
+      w.copy(c).applyQuaternion(p.quat).add(p.pos);
+      const cx = Math.floor(w.x / CELL), cz = Math.floor(w.z / CELL);
+      const H = map.cellHeight(cx, cz);
+      if (w.y < H) {
+        if (H < WALL_H && H - w.y < 0.3) { n.set(0, 1, 0); this.contact(p, null, w, n, H - w.y); touching = true; continue; }
+        // pushed sideways out of a wall / furniture block, toward the nearest open side
+        const opts = [
+          [w.x - cx * CELL, -1, 0, map.cellHeight(cx - 1, cz)], [(cx + 1) * CELL - w.x, 1, 0, map.cellHeight(cx + 1, cz)],
+          [w.z - cz * CELL, 0, -1, map.cellHeight(cx, cz - 1)], [(cz + 1) * CELL - w.z, 0, 1, map.cellHeight(cx, cz + 1)],
+        ].filter((o) => o[3] < H).sort((a, b) => a[0] - b[0]);
+        if (opts.length) { n.set(opts[0][1], 0, opts[0][2]); this.contact(p, null, w, n, opts[0][0]); touching = true; }
+      } else if (w.y < 0) { n.set(0, 1, 0); this.contact(p, null, w, n, -w.y); touching = true; }
+      if (w.y > CEIL_H && !map.isOutdoorCell(cx, cz)) { n.set(0, -1, 0); this.contact(p, null, w, n, w.y - CEIL_H); }
+    }
+    return touching;
+  }
+
+  // corners of a inside parts of b
+  collidePair(a, b) {
+    const w = new V(), l = new V(), n = new V();
+    for (const c of a.corners) {
+      w.copy(c).applyQuaternion(a.quat).add(a.pos);
+      if (w.distanceToSquared(b.pos) > b.bound * b.bound) continue;
+      for (const part of b.parts) {
+        this.toPartLocal(b, part, w, l);
+        const px = part.h.x - Math.abs(l.x), py = part.h.y - Math.abs(l.y), pz = part.h.z - Math.abs(l.z);
+        if (px <= 0 || py <= 0 || pz <= 0) continue;
+        if (px < py && px < pz) n.set(Math.sign(l.x) || 1, 0, 0);
+        else if (py < pz) n.set(0, Math.sign(l.y) || 1, 0);
+        else n.set(0, 0, Math.sign(l.z) || 1);
+        n.applyQuaternion(part.q).applyQuaternion(b.quat);
+        this.contact(a, b, w, n, Math.min(px, py, pz));
+      }
+    }
+  }
+
+  // ---------------- people vs props ----------------
+  // Keeps a character out of props. soft = 0..1 how much of the overlap moves the character.
+  // With push=true (host) the character shoves the prop (impulse at the contact point -> it can tip over).
+  collideChar(ch, soft, push, dt = 1 / 60) {
+    const R = P.RADIUS;
+    const s = t1, l = t2, q = t3;
+    for (const p of this.list) {
+      const dx = p.pos.x - ch.x, dz = p.pos.z - ch.z;
+      const reach = p.bound + R + 0.1;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      if (ch.y > p.top - 0.02 || ch.y + P.HEIGHT < p.y) continue;
+      let best = 0, nx = 0, nz = 0;
+      const bq = new V();
+      for (const part of p.parts) {
+        for (const hs of CHAR_SAMPLES) {
+          s.set(ch.x, ch.y + hs, ch.z);
+          this.toPartLocal(p, part, s, l);
+          const inside = Math.abs(l.x) < part.h.x && Math.abs(l.y) < part.h.y && Math.abs(l.z) < part.h.z;
+          l.set(Math.max(-part.h.x, Math.min(part.h.x, l.x)), Math.max(-part.h.y, Math.min(part.h.y, l.y)), Math.max(-part.h.z, Math.min(part.h.z, l.z)));
+          this.fromPartLocal(p, part, l, q);
+          if (Math.abs(s.y - q.y) > 0.13) continue; // above / below this part
+          let hx = s.x - q.x, hz = s.z - q.z, dh = Math.hypot(hx, hz);
+          let pen;
+          if (inside || dh < 1e-4) { hx = ch.x - p.pos.x; hz = ch.z - p.pos.z; dh = Math.hypot(hx, hz) || 1; pen = R * 0.6; }
+          else pen = R - dh;
+          if (pen > best) { best = pen; nx = hx / dh; nz = hz / dh; bq.copy(q); }
+        }
+      }
+      if (best <= 0) continue;
+      ch.x += nx * best * soft; ch.z += nz * best * soft;
+      if (push) {
+        const dir = t4.set(-nx, 0, -nz);
+        // push point pulled a bit toward the center of mass: tall things still tip, tables mostly slide
+        const r = new V().copy(bq).sub(p.pos);
+        r.y *= 0.55;
+        const vp = this.pointVel(p, r, new V()).dot(dir);
+        const chv = Math.max(0, (ch.vx || 0) * dir.x + (ch.vz || 0) * dir.z);
+        const want = Math.min(chv * 1.05, 3.5) + best * 6;
+        if (vp < want) {
+          const k = this.kAlong(p, r, dir);
+          const j = Math.min((want - vp) / k, 55 * dt);
+          this.applyImpulse(p, r, dir.multiplyScalar(j));
+          this.wake(p);
+        }
+      }
+    }
+  }
+
+  // Highest prop surface under a circle (for standing on props), not above maxY
+  topAt(x, z, r, maxY) {
+    let best = -Infinity;
+    const o = new V(), d = new V(0, -1, 0), lo = new V(), ld = new V();
+    for (const p of this.list) {
+      if (p.top < -1 || p.y > maxY) continue;
+      const dx = p.pos.x - x, dz = p.pos.z - z, reach = p.r + r;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      for (const [ox, oz] of [[0, 0], [r * 0.7, 0], [-r * 0.7, 0], [0, r * 0.7], [0, -r * 0.7]]) {
+        o.set(x + ox, maxY + 0.01, z + oz);
+        for (const part of p.parts) {
+          this.toPartLocal(p, part, o, lo);
+          ld.copy(d).applyQuaternion(tq2.copy(p.quat).invert()).applyQuaternion(part.qi);
+          const t = slab(lo, ld, part.h);
+          if (t > 0 && t < 4) best = Math.max(best, o.y - t);
+        }
+      }
+    }
+    return best;
+  }
+
+  // Ray vs every part box. Returns {prop, t, point} of the nearest hit or null.
   raycast(ox, oy, oz, dx, dy, dz, maxT) {
     let best = null, bt = maxT;
+    const o = new V(ox, oy, oz), d = new V(dx, dy, dz), lo = new V(), ld = new V();
     for (const p of this.list) {
-      const px = ox - p.x, pz = oz - p.z;
-      const a = dx * dx + dz * dz;
-      let t0 = -Infinity, t1 = Infinity;
-      const R = p.r * 0.9;
-      if (a > 1e-9) {
-        const b = 2 * (px * dx + pz * dz), c = px * px + pz * pz - R * R;
-        const disc = b * b - 4 * a * c;
-        if (disc < 0) continue;
-        const s = Math.sqrt(disc);
-        t0 = (-b - s) / (2 * a); t1 = (-b + s) / (2 * a);
-      } else if (px * px + pz * pz > R * R) continue;
-      if (Math.abs(dy) > 1e-9) {
-        let ta = (p.y - oy) / dy, tb = (p.y + p.h - oy) / dy;
-        if (ta > tb) [ta, tb] = [tb, ta];
-        t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
-      } else if (oy < p.y || oy > p.y + p.h) continue;
-      if (t0 > t1 || t1 < 0) continue;
-      const t = Math.max(0, t0);
-      // chairs / tables are mostly air: only the upper part blocks bullets
-      if ((p.type === 'chair' || p.type === 'table') && oy + dy * t < p.y + p.h - 0.12) continue;
-      if (t < bt) { bt = t; best = p; }
+      // bounding sphere test
+      const cx = p.pos.x - ox, cy = p.pos.y - oy, cz = p.pos.z - oz;
+      const tc = cx * dx + cy * dy + cz * dz;
+      if (tc < -p.bound || tc > bt + p.bound) continue;
+      if (cx * cx + cy * cy + cz * cz - tc * tc > p.bound * p.bound) continue;
+      for (const part of p.parts) {
+        this.toPartLocal(p, part, o, lo);
+        ld.copy(d).applyQuaternion(tq2.copy(p.quat).invert()).applyQuaternion(part.qi);
+        const t = slab(lo, ld, part.h);
+        if (t >= 0 && t < bt) { bt = t; best = p; }
+      }
     }
-    return best ? { prop: best, t: bt } : null;
+    return best ? { prop: best, t: bt, point: new V(ox + dx * bt, oy + dy * bt, oz + dz * bt) } : null;
+  }
+
+  // Ragdoll joints: push a sphere out of any prop part. Returns true if it rests on top of something.
+  pushPoint(q, rad) {
+    const w = new V(q.x, q.y, q.z), l = new V(), n = new V();
+    let onTop = false;
+    for (const p of this.list) {
+      if (w.distanceToSquared(p.pos) > (p.bound + rad) ** 2) continue;
+      for (const part of p.parts) {
+        this.toPartLocal(p, part, w, l);
+        const px = part.h.x + rad - Math.abs(l.x), py = part.h.y + rad - Math.abs(l.y), pz = part.h.z + rad - Math.abs(l.z);
+        if (px <= 0 || py <= 0 || pz <= 0) continue;
+        if (px < py && px < pz) { n.set(Math.sign(l.x) || 1, 0, 0); l.x += n.x * px; }
+        else if (py < pz) { n.set(0, Math.sign(l.y) || 1, 0); l.y += n.y * py; }
+        else { n.set(0, 0, Math.sign(l.z) || 1); l.z += n.z * pz; }
+        this.fromPartLocal(p, part, l, w);
+        n.applyQuaternion(part.q).applyQuaternion(p.quat);
+        if (n.y > 0.6) onTop = true;
+      }
+    }
+    q.x = w.x; q.y = w.y; q.z = w.z;
+    return onTop;
   }
 
   // ---------------- host simulation ----------------
   step(dt, chars) {
-    const list = this.list;
-    // characters push props
-    for (const c of chars) {
-      if (!c.alive) continue;
-      for (const p of list) {
-        const dx = p.x - c.x, dz = p.z - c.z;
-        const R = p.r + CONFIG.PLAYER.RADIUS;
-        if (Math.abs(dx) > R || Math.abs(dz) > R) continue;
-        if (c.y >= p.y + p.h - 0.25 || c.y + CONFIG.PLAYER.HEIGHT < p.y) continue; // standing on top / above
-        const d = Math.hypot(dx, dz);
-        if (d >= R || d < 1e-4) continue;
-        const nx = dx / d, nz = dz / d, over = R - d;
-        if (c.isBot) {
-          const k = CHAR_MASS / (CHAR_MASS + p.mass);
-          p.x += nx * over * k; p.z += nz * over * k;
-          c.x -= nx * over * (1 - k); c.z -= nz * over * (1 - k);
-        } else {
-          p.x += nx * over; p.z += nz * over; // human positions are client-authoritative
+    for (const c of chars) if (c.alive) this.collideChar(c, c.isBot ? 0.6 : 0, true, dt);
+    const awake = this.list.filter((p) => !p.asleep);
+    if (!awake.length) return;
+    const N = 3, h = Math.min(dt, 1 / 30) / N;
+    for (let s = 0; s < N; s++) {
+      for (const p of awake) {
+        p.vel.y -= GRAV * h;
+        p.pos.addScaledVector(p.vel, h);
+        tq.set(p.ang.x * h * 0.5, p.ang.y * h * 0.5, p.ang.z * h * 0.5, 0).multiply(p.quat);
+        p.quat.x += tq.x; p.quat.y += tq.y; p.quat.z += tq.z; p.quat.w += tq.w; p.quat.normalize();
+      }
+      for (let it = 0; it < 2; it++) {
+        for (const p of awake) {
+          p.touching = this.collideWorld(p) || p.touching;
+          for (const o of this.list) {
+            if (o === p) continue;
+            const dd = p.bound + o.bound;
+            if (p.pos.distanceToSquared(o.pos) > dd * dd) continue;
+            this.collidePair(p, o);
+            if (o.asleep) this.collidePair(o, p);
+          }
         }
-        const vc = c.vx * nx + c.vz * nz, vp = p.vx * nx + p.vz * nz;
-        if (vc > vp) {
-          const k = (CHAR_MASS / (CHAR_MASS + p.mass)) * 1.5;
-          p.vx += nx * (vc - vp) * k; p.vz += nz * (vc - vp) * k;
-          // off-center pushes make it turn
-          p.spin += ((c.vx * nz - c.vz * nx) * 0.6) / p.mass;
-        }
-        this.wake(p);
+      }
+      for (const p of awake) {
+        p.vel.multiplyScalar(Math.exp(-0.05 * h));
+        p.ang.multiplyScalar(Math.exp(-(p.touching ? 1.6 : 0.3) * h));
+        if (p.vel.lengthSq() > 625) p.vel.setLength(25);
+        if (p.ang.lengthSq() > 400) p.ang.setLength(20);
+        p.touching = false;
       }
     }
-    // props vs props
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i];
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        if (a.sleep > 1 && b.sleep > 1) continue;
-        const dx = b.x - a.x, dz = b.z - a.z, R = a.r + b.r;
-        if (Math.abs(dx) > R || Math.abs(dz) > R) continue;
-        if (a.y >= b.y + b.h - 0.05 || b.y >= a.y + a.h - 0.05) continue;
-        const d = Math.hypot(dx, dz);
-        if (d >= R || d < 1e-4) continue;
-        const nx = dx / d, nz = dz / d, over = R - d, tm = a.mass + b.mass;
-        a.x -= nx * over * (b.mass / tm); a.z -= nz * over * (b.mass / tm);
-        b.x += nx * over * (a.mass / tm); b.z += nz * over * (a.mass / tm);
-        const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
-        if (rel < 0) {
-          const j2 = (-(1 + 0.25) * rel) / (1 / a.mass + 1 / b.mass);
-          a.vx -= (j2 / a.mass) * nx; a.vz -= (j2 / a.mass) * nz;
-          b.vx += (j2 / b.mass) * nx; b.vz += (j2 / b.mass) * nz;
-          if (-rel > 2) this.events.push({ p: b, s: -rel });
-        }
-        this.wake(a); this.wake(b);
+    for (const p of awake) {
+      this.updateBounds(p);
+      if (p.vel.lengthSq() < 0.012 && p.ang.lengthSq() < 0.03) p.sleepT += dt; else p.sleepT = 0;
+      if (p.sleepT > 0.6 || p.pos.y < -10) {
+        p.asleep = true; p.vel.set(0, 0, 0); p.ang.set(0, 0, 0);
+        if (p.pos.y < -10) { p.pos.copy(p.home.pos); p.quat.copy(p.home.quat); this.updateBounds(p); }
       }
-    }
-    // integrate
-    for (const p of list) {
-      if (p.sleep > 1) continue;
-      p.vy -= 18 * dt;
-      p.y += p.vy * dt;
-      // support: floor / solid furniture / other props below
-      let sup = groundHeightCells(this.map, p.x, p.z, p.r * 0.7, p.y + 0.3);
-      for (const o of list) {
-        if (o === p) continue;
-        const top = o.y + o.h;
-        if (top > p.y + 0.3 || top <= sup) continue;
-        if (Math.hypot(o.x - p.x, o.z - p.z) < (o.r + p.r) * 0.75) sup = top;
-      }
-      let ground = false;
-      if (p.y <= sup) {
-        if (p.vy < -3) this.events.push({ p, s: -p.vy });
-        p.y = sup; p.vy = 0; ground = true;
-      }
-      const sp = Math.hypot(p.vx, p.vz);
-      if (ground && sp > 0) {
-        const ns = Math.max(0, sp - FRICTION * dt);
-        p.vx *= ns / sp; p.vz *= ns / sp;
-      }
-      const bx = p.x, bz = p.z;
-      p.x += p.vx * dt; p.z += p.vz * dt;
-      const pos = { x: p.x, z: p.z };
-      resolveWalls(this.map, pos, p.r, p.y);
-      if (Math.abs(pos.x - p.x) > 1e-4) { if (Math.abs(p.vx) > 2.5) this.events.push({ p, s: Math.abs(p.vx) }); p.vx *= -0.3; }
-      if (Math.abs(pos.z - p.z) > 1e-4) { if (Math.abs(p.vz) > 2.5) this.events.push({ p, s: Math.abs(p.vz) }); p.vz *= -0.3; }
-      p.x = pos.x; p.z = pos.z;
-      p.yaw += p.spin * dt;
-      p.spin *= Math.exp(-(ground ? 4 : 0.5) * dt);
-      const moving = Math.hypot(p.x - bx, p.z - bz) > 1e-4 || Math.abs(p.vy) > 0.01 || Math.abs(p.spin) > 0.01 || !ground;
-      p.sleep = moving ? 0 : p.sleep + dt;
     }
   }
 
-  // Snapshot of props that moved (or all of them every 2s)
+  // ---------------- network ----------------
   snapshot(dt) {
     this.fullT -= dt;
     const full = this.fullT <= 0;
@@ -255,19 +472,20 @@ export class PropSystem {
     const out = [];
     for (const p of this.list) {
       const last = this.lastSent.get(p.id);
-      if (!full && last && Math.abs(last[0] - p.x) < 0.01 && Math.abs(last[1] - p.y) < 0.01 && Math.abs(last[2] - p.z) < 0.01 && Math.abs(last[3] - p.yaw) < 0.01) continue;
-      this.lastSent.set(p.id, [p.x, p.y, p.z, p.yaw]);
-      out.push([p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.yaw)]);
+      if (!full && last && last.pos.distanceToSquared(p.pos) < 1e-4 && Math.abs(last.quat.dot(p.quat)) > 0.99995) continue;
+      this.lastSent.set(p.id, { pos: p.pos.clone(), quat: p.quat.clone() });
+      out.push(this.stateOf(p));
     }
     return out;
   }
-  fullState() { return this.list.map((p) => [p.id, r2(p.x), r2(p.y), r2(p.z), r2(p.yaw)]); }
-
+  stateOf(p) { return [p.id, r2(p.pos.x), r2(p.pos.y), r2(p.pos.z), r3(p.quat.x), r3(p.quat.y), r3(p.quat.z), r3(p.quat.w)]; }
+  fullState() { return this.list.map((p) => this.stateOf(p)); }
   applyState(arr) {
-    for (const [id, x, y, z, yaw] of arr) {
-      const p = this.list[id];
-      if (!p) continue;
-      p.x = x; p.y = y; p.z = z; p.yaw = yaw;
+    for (const s of arr) {
+      const p = this.list[s[0]];
+      if (!p || s.length < 8) continue;
+      p.pos.set(s[1], s[2], s[3]); p.quat.set(s[4], s[5], s[6], s[7]).normalize();
+      this.updateBounds(p);
     }
   }
 
@@ -275,20 +493,30 @@ export class PropSystem {
   render(dt, lampsDynamic) {
     const k = this.isHost ? 1 : Math.min(1, dt * 14);
     for (const p of this.list) {
-      if (Math.hypot(p.x - p.rx, p.z - p.rz) > 3) { p.rx = p.x; p.rz = p.z; p.ry = p.y; p.ryaw = p.yaw; }
-      p.rx += (p.x - p.rx) * k; p.ry += (p.y - p.ry) * k; p.rz += (p.z - p.rz) * k;
-      p.ryaw += (p.yaw - p.ryaw) * k;
-      p.mesh.position.set(p.rx, p.ry, p.rz);
-      p.mesh.rotation.y = p.ryaw;
-      // light probe tint (cheap: only refreshed now and then)
+      if (p.rpos.distanceToSquared(p.pos) > 9) { p.rpos.copy(p.pos); p.rquat.copy(p.quat); }
+      p.rpos.lerp(p.pos, k); p.rquat.slerp(p.quat, k);
+      p.mesh.position.copy(p.rpos); p.mesh.quaternion.copy(p.rquat);
       p.lightT -= dt;
       if (p.lightT <= 0) {
         p.lightT = 0.4 + Math.random() * 0.3;
-        this.map.probe(p.rx, p.rz, !lampsDynamic, p.light);
-        for (const m of p.mats) m.color.setRGB(p.light[0], p.light[1], p.light[2]);
+        this.map.probe(p.rpos.x, p.rpos.z, !lampsDynamic, p.light);
+        const lum = 0.3 * p.light[0] + 0.55 * p.light[1] + 0.15 * p.light[2];
+        for (const m of p.mats) m.color.setRGB(lum * 0.8 + p.light[0] * 0.2, lum * 0.8 + p.light[1] * 0.2, lum * 0.8 + p.light[2] * 0.2);
       }
     }
   }
 }
 
-export { TYPE_IDS };
+// ray (origin o, dir d, in box-local space) vs box of half size h: entry distance or -1
+function slab(o, d, h) {
+  let tmin = -Infinity, tmax = Infinity;
+  for (const ax of ['x', 'y', 'z']) {
+    if (Math.abs(d[ax]) < 1e-9) { if (Math.abs(o[ax]) > h[ax]) return -1; continue; }
+    let ta = (-h[ax] - o[ax]) / d[ax], tb = (h[ax] - o[ax]) / d[ax];
+    if (ta > tb) [ta, tb] = [tb, ta];
+    tmin = Math.max(tmin, ta); tmax = Math.min(tmax, tb);
+    if (tmin > tmax) return -1;
+  }
+  if (tmax < 0) return -1;
+  return tmin < 0 ? 0 : tmin;
+}

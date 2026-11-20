@@ -4,11 +4,13 @@
 //  Each character = one CELL (2 x 2 meters).
 //   FLOORS   .  tile (indoor)      ,  wood (indoor)     ;  carpet (indoor)
 //            _  concrete (indoor)  o  grass (outdoor)   a  asphalt (outdoor)
+//            ~  dirty / trashed floor (indoor: grime, graffiti walls, broken lights)
 //   SOLID    #  wall (6 m)         P  pillar            Q  tall shelf (2.2 m)
 //            W  counter / desk (1 m, you can jump on it)
 //   PROPS (movable physics objects)
 //            B  cardboard box      C  wooden crate      K  chair
-//            T  round table        X  barrel
+//            T  table              X  barrel             M  mattress
+//            L  floor lamp         b  beer bottle
 //   MARKERS  S  spawn point        G  gun part spot
 //  Markers / props / solid furniture take the floor type of their neighbours.
 //  Indoor floors get a ceiling with lights automatically (every 3rd cell).
@@ -25,7 +27,7 @@ export const LAYOUT = [
   '############################################################',
   '############################################################',
   '##;QQQQ;;;;;;;;;#....#................#....#_____________G##',
-  '##;;;;;;;;;;;;B;#..G.#..S............G#....#_B__S_______B_##',
+  '##;;;;;;;;;;;;B;#..G.#..S............G#....#CB__S____B__B_##',
   '##;;S;;;;;;;;;B;#....#...K....K....K..#....#______________##',
   '##;;WWW;;;WWW;;;#....#..KTK..KTK..KTK.#....#__QQQQQQQQQ___##',
   '##;;;K;;;;;K;;;;#....#...K....K....K..#....#_____________S##',
@@ -33,63 +35,65 @@ export const LAYOUT = [
   '##;;;;;;;;;;;;;;..S...G.............S.......______________##',
   '##;;WWW;;;WWW;;;.........K....K....K........__QQQQQQQQQ___##',
   '##;;;K;;;;;K;;;;#....#..KTK..KTK..KTK.#....#______________##',
-  '##;S;;;;;G;;;;;;#....#...K....K....K..#....#_B_____S___B__##',
-  '##;;;;;;;;;;;;;G#.B..#.S..............#....#_____________X##',
+  '##;S;;;;;G;;;;;;#....#...K....K....K..#....#_B____BS___B__##',
+  '##;;;;;;;;;;;;;G#....#.S..............#....#____________C_##',
   '##;;WWW;;;WWW;;;#....#.......S........#..S.#_SQQQQQQQQQ___##',
-  '##;;;K;;;;;K;C;;#....#.WWWWW.....B..X.#....#X_____________##',
+  '##;;;K;;;;;K;B;;#....#.WWWWW..........#....#______________##',
   '##;;;;;;S;;;;;;;#....#.........G......#....#__B__B___G__B_##',
   '#######...#######....#######....#######....######...########',
   '##.................................G......................##',
-  '##........S..............B................................##',
-  '##................................X...............S.......##',
+  '##........S...............................................##',
+  '##................................................S.......##',
   '##........................................................##',
   '#######...#######....#######....#######....######...########',
-  '##.......G......#....#oooooooaaooooooo#....#,,,,,,,G,,,,,,##',
-  '##.S....K.....B.#....#ooooooSaaGoooooo#....#,CC,,,,,,,,,,X##',
-  '##..............#....#ooCBoooaaooooCoo#....#,C,,,S,,,,,,,,##',
-  '##...P......P...#..G.#ooBooKoaaooXoooo#....#,,,P,,,,,,P,,,##',
-  '##........S.....#....#ooooTooaaSoooooo#..B.#,,,,,,,,,,,,,,##',
-  '##.K............#....#ooooXooaaoKooXoo#....#,S,,,,,,,,,,,G##',
-  '##...........S........oooooooaaooooooo......,,,,,,,,,,,,,,##',
-  '##....................aaaaaaaaaaaaaaaa......,,,,,,B,,,,,,,##',
-  '##....WWWWW...........aGaaaaaaaaaaaaaa......,,,,,,,B,,,,S,##',
-  '##....................oooooooaaooooooo......,,,,,B,,,,,,,,##',
-  '##G....K.K......#....#oooooooaaooKoooS#....#,,,,,,,,,,,,,,##',
-  '##..............#...X#ooooBooaaoXooooo#....#G,,,,,,,,,,,,,##',
-  '##...P......P...#....#oooooKoaaooToooo#....#,,,P,,,,,,P,,,##',
-  '##..............#....#ooCooooaaoooBCoo#.G..#,,,,,,,,,,,,,,##',
-  '##.BC.S.......K.#....#oSoooooaaooooooG#....#,,,,,,,,S,,,C,##',
-  '##.............G#....#oooooooaaooooooo#....#,,,,,,,,,,,CC,##',
+  '##.......G......#....#oooooooaaooooooo#....#~~~~~~~G~~~~~~##',
+  '##.SKKK...KKK...#....#ooooooSaaGoooooo#....#~WW~b~~~L~~~~B##',
+  '##..............#....#oooooooaaooooooo#....#~~K~~S~M~~~~~~##',
+  '##...P......P...#..G.#ooKTKooaaooKTKoo#....#~~~P~~~~~bP~~~##',
+  '##......T.S.....#....#oooooooaaSoooooo#....#L~~~~b~~~~~~~~##',
+  '##..............#....#oooooooaaooooooo#....#~M~~~~~~b~~~~G##',
+  '##...........S........oooooooaaooooooo......~~b~~~T~~~~~~~##',
+  '##....................aaaaaaaaaaaaaaaa......~~~~~~~~~~~K~~##',
+  '##....WWWWW...........aGaaaaaaaaaaaaaa......~~~b~~~~~~~WW~##',
+  '##....................oooooooaaooooooo......b~~~~~L~~~~~~b##',
+  '##G.............#....#oooooooaaooooooS#....#~~~~~~~~b~~~~~##',
+  '##..............#....#oooooooaaooooooo#....#G~~~~~~~~~~b~~##',
+  '##...P......P...#....#ooKTKooaaooKTKoo#....#~~~P~~b~~~P~~L##',
+  '##..............#....#oooooooaaooooooo#.G..#~b~~~~~K~~~~M~##',
+  '##..KKK...KKK...#....#oSoooooaaooooooG#....#~~M~~~~~SB~~~~##',
+  '##.............G#....#oooooooaaooooooo#....#B~~~L~~~~~~~~~##',
   '#######...#######....#######....#######....######...########',
   '##........................................................##',
-  '##..........B.................S.......................X...##',
-  '##.......................G.....................B.......S..##',
+  '##............................S...........................##',
+  '##.......................G.............................S..##',
   '##........................................................##',
   '#######...#######....#######....#######....######...########',
   '##;;;;;;;;;;;;;;#....#________________#....#aaaaaGaaaaaaaa##',
-  '##;S;;;;;;;;;;B;#....#_WWWW______WWWW_#....#aaaaaaaaaaaaaa##',
-  '##;;QQQQQQQQQ;;;#....#__K______S__K__G#....#aaCCaaaaaaaaaa##',
-  '##;;;;;;;;G;;;;;#..B.#________________#....#aaaaaaaaaXaaSa##',
-  '##;;;;;;;;;;;;S;#....#_S_____C__X_____#....#aaaaaaaaaaaaaa##',
-  '##;;QQQQQQQQQ;;;......___X__________X_......aaaSaaaaaaaaaa##',
-  '##G;;;;;;;;;;;;;...S..______B__B______......aaaaaaXaBaaaaa##',
-  '##;;;;;;;;;;;;;;......__C_________B___......aaaaaaaaaaaaaG##',
-  '##;;QQQQQQQQQ;;;#....#________C______S#....#aaXaaaaaaaaaaa##',
-  '##;;;;;;;;;;;;;;#....#_____X_______C__#....#aaaaaaaXaaaaaa##',
+  '##;S;;;;;;;;;;;;#....#_WWWW____WWWWWWW#....#aaaaaaaaaaaaaa##',
+  '##;;QQQQQQQQQ;;;#....#__K______S_____G#....#aaaaaaaaaaaaaa##',
+  '##;;;;;;;;G;;;;;#....#__________X_X_X_#....#aaaaaaaaaaaaSa##',
+  '##;;;;;;;;;;;;S;#....#_S___B__________#....#aaaaaaaaaaaaaa##',
+  '##;;QQQQQQQQQ;;;......__________X_X_X_......aaaSaaaaaaaaaa##',
+  '##G;;;;;;;;;;;;;...S..__C_C___________......aaaaaaaaaaaaaa##',
+  '##;;;;;;;;;;;;;;......__________X_X_X_......aaaaaaaaaaaaaG##',
+  '##;;QQQQQQQQQ;;;#....#_C_____________S#....#aaaaaaaaaaaaaa##',
+  '##;;;;;;;;;;;;;;#....#______B___X_X_X_#....#aaaaaaaaaaaaaa##',
   '##;;;;;;;;;;;S;;#....#________________#.S..#aSaaaaaaaaaaaa##',
-  '##;;KTK;;;KTK;;;#....#______G____X____#....#aaaaXaaaaaaaCa##',
-  '##;;;K;;;;;K;;;;#....#_WWWW_________B_#....#aBaaaaaaaaaCCa##',
+  '##;;KTK;;;KTK;;;#....#___K__G___X_X_X_#....#aaaaaaaaaaaaaa##',
+  '##;;;K;;;;;K;;;;#....#_WWWW___________#....#aaaaaaaaaaaaaa##',
   '##;;;;;;S;;;;;;G#....#G_____S_________#....#GaaaaaaaSaaaaa##',
   '############################################################',
-  '############################################################',];
+  '############################################################',
+];
 
 // ---- cell kinds ----
 export const K = { FLOOR: 0, WALL: 1, PILLAR: 2, SHELF: 3, COUNTER: 4 };
 const SOLID = { '#': [K.WALL, WALL_H], 'P': [K.PILLAR, WALL_H], 'Q': [K.SHELF, 2.2], 'W': [K.COUNTER, 1.0] };
-const FLOOR_CH = { '.': 'tile', ',': 'wood', ';': 'carpet', '_': 'concrete', 'o': 'grass', 'a': 'asphalt' };
-const FLOOR_LIST = ['tile', 'wood', 'carpet', 'concrete', 'grass', 'asphalt'];
+const FLOOR_CH = { '.': 'tile', ',': 'wood', ';': 'carpet', '_': 'concrete', 'o': 'grass', 'a': 'asphalt', '~': 'dirty' };
+const FLOOR_LIST = ['tile', 'wood', 'carpet', 'concrete', 'grass', 'asphalt', 'dirty'];
 const OUTDOOR = new Set(['grass', 'asphalt']);
-export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel' };
+export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel', M: 'mattress', L: 'lamp', b: 'bottle' };
+export const ROOF_T = 0.55;   // thickness of the concrete roof slab above the ceilings
 
 // ---- lighting constants (baked into vertex colors) ----
 const SUN_DIR = new THREE.Vector3(0.45, 0.82, 0.36).normalize();
@@ -153,14 +157,17 @@ export class GameMap {
             if (c2 === 'T' || c2 === 'W') { yaw = Math.atan2(-dx, -dz) + (hash2(z, x) - 0.5) * 0.4; break; }
           }
         }
-        this.propSpawns.push({ type, x: cx, z: cz, yaw });
+        const messy = f === 'dirty';
+        const tip = type === 'bottle' ? hash2(x + 7, z) < 0.75 : messy && type === 'chair' && hash2(z, x + 3) < 0.6;
+        this.propSpawns.push({ type, x: cx + (hash2(x, z + 9) - 0.5) * (messy ? 0.8 : 0.1), z: cz + (hash2(x + 9, z) - 0.5) * (messy ? 0.8 : 0.1), yaw: messy ? hash2(x * 3, z) * 6.28 : yaw, tip });
       }
     }
     // ceiling lights
     this.lights = [];
     for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
       const i = z * this.w + x;
-      if (x % 3 === 1 && z % 3 === 1 && !this.outdoor[i] && this.heights[i] < WALL_H) {
+      const broken = FLOOR_LIST[this.floor[i]] === 'dirty' && hash2(x, z) < 0.55;
+      if (x % 3 === 1 && z % 3 === 1 && !this.outdoor[i] && this.heights[i] < WALL_H && !broken) {
         this.lights.push({ x: (x + 0.5) * CELL, y: CEIL_H - 0.1, z: (z + 0.5) * CELL });
       }
     }
@@ -290,9 +297,10 @@ export class GameMap {
     return ao;
   }
 
-  dirtAt(px, py, pz, isWall) {
+  dirtAt(px, py, pz, isWall, nx = 0, nz = 0) {
     const u = px / this.worldW, v = pz / this.worldD;
     let d = 1 - Math.max(0, fbm(u, v, 12, 3, 901) - 0.5) * 0.7;
+    if (this.floorTypeAt(px + nx * 0.4, pz + nz * 0.4) === 'dirty') d *= 0.62 + fbm(u * 3, v * 3 + py * 0.05, 16, 3, 903) * 0.38;
     if (isWall) {
       const s = fbm(u + v, py / 24, 16, 3, 902);
       d *= 1 - (1 - Math.min(1, py / 1.6)) * 0.28 * s * 2;     // grime near the floor
@@ -303,7 +311,7 @@ export class GameMap {
 
   bakeColor(px, py, pz, nx, ny, nz, isWall = false) {
     const [r, g, b] = this.lightAt(px, py, pz, nx, ny, nz);
-    const k = this.aoAt(px, py, pz, nx, ny, nz) * this.dirtAt(px, py, pz, isWall);
+    const k = this.aoAt(px, py, pz, nx, ny, nz) * this.dirtAt(px, py, pz, isWall, nx, nz);
     return [r * k, g * k, b * k];
   }
 
@@ -351,9 +359,10 @@ export class GameMap {
       if (!builders.has(key)) builders.set(key, { b: new Builder(this), map });
       return builders.get(key).b;
     };
-    const floorTex = { tile: T.floorTile, wood: T.floorWood, carpet: T.floorCarpet, concrete: T.floorConcrete, grass: T.grass, asphalt: T.asphalt };
+    const floorTex = { tile: T.floorTile, wood: T.floorWood, carpet: T.floorCarpet, concrete: T.floorConcrete, grass: T.grass, asphalt: T.asphalt, dirty: T.floorDirty };
     const W = this.w, H = this.h;
     const idx = (x, z) => z * W + x;
+    const trimRoof = [];
 
     // ---- floors & ceilings (greedy rectangles, subdivided every 1 m) ----
     const rects = (pred) => {
@@ -387,10 +396,36 @@ export class GameMap {
         b.gridY(x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL, CEIL_H, true, 2);
       }
     }
+    // ---- thick concrete roof slab over the whole building ----
+    {
+      const roofed = (x, z) => this.inBounds(x, z) && !this.outdoor[idx(x, z)];
+      const rb = B('roof', T.roof);
+      for (const [x0, z0, x1, z1] of rects((x, z) => roofed(x, z))) {
+        rb.gridY(x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL, WALL_H + ROOF_T, false, 4);
+      }
+      // slab edges facing the open courtyard / parking lot (gives the roof its thickness)
+      const eb = B('roof-edge', T.wallConcrete);
+      for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+        if (!roofed(x, z)) continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, nz = z + dz;
+          if (!this.inBounds(nx, nz) || roofed(nx, nz)) continue;
+          const ex = dx > 0 ? (x + 1) * CELL : dx < 0 ? x * CELL : null;
+          const ez = dz > 0 ? (z + 1) * CELL : dz < 0 ? z * CELL : null;
+          let a, c2;
+          if (ex !== null) { a = [ex, z * CELL]; c2 = [ex, (z + 1) * CELL]; if (dx > 0) [a, c2] = [c2, a]; }
+          else { a = [(x + 1) * CELL, ez]; c2 = [x * CELL, ez]; if (dz > 0) [a, c2] = [c2, a]; }
+          eb.wall(a, c2, this.heights[idx(x, z)] >= WALL_H ? WALL_H : CEIL_H, WALL_H + ROOF_T, dx, dz, 2);
+          // drip edge / trim along the top of the slab
+          trimRoof.push([a, c2, dx, dz]);
+        }
+      }
+    }
     onProgress?.(0.45);
 
     // ---- vertical faces of walls / pillars / shelves / counters ----
     const trim = B('trim', null);
+    for (const [a, c2, dx, dz] of trimRoof) trim.box(a, c2, dx, dz, WALL_H + ROOF_T - 0.08, WALL_H + ROOF_T + 0.04, 0.08, [0.6, 0.6, 0.58]);
     const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
       const i = idx(x, z);
@@ -407,7 +442,8 @@ export class GameMap {
         const top = Math.min(h, nOut ? WALL_H : CEIL_H);
         let key, map, tsz = 2;
         if (kind === K.WALL) {
-          if (nOut || nFloor === 'concrete') { key = 'wall-concrete'; map = T.wallConcrete; }
+          if (nFloor === 'dirty') { key = 'wall-graffiti'; map = T.wallGraffiti; tsz = 4; }
+          else if (nOut || nFloor === 'concrete') { key = 'wall-concrete'; map = T.wallConcrete; }
           else { key = 'wall-painted'; map = T.wallPainted; }
         } else if (kind === K.PILLAR) { key = 'pillar'; map = T.pillar; tsz = 6; }
         else if (kind === K.SHELF) { key = 'shelf'; map = T.shelf; tsz = 2.2; }

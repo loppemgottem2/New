@@ -94,7 +94,6 @@
         <button id="btn-editor-done" class="btn small primary-sm">Done</button>
       </div>
     </div>
-    <div class="editor-hint">Drag to rotate</div>
   </div>
 
   <!-- ===================== HELP ===================== -->
@@ -106,7 +105,7 @@
       <p>Whoever holds the revolver is the <b style="color:#4af">Sheriff</b>. If the Sheriff shoots an innocent bystander, the Sheriff dies too and the gun drops. Anyone except the murderer can pick a dropped gun up. Chain jumps and air-strafe to build speed, and shove the furniture around for cover.</p>
       <p>Everybody gets a random codename and color each round, so nobody knows who is who. Watch who carries a knife, and who stands over the bodies…</p>
       <h3>Phone controls</h3>
-      <p>Left thumb: move (push to the edge to sprint). Right thumb: drag to look. Buttons: jump, draw/hide weapon, stab/shoot (drag on it to aim too), throw, ＋/－ camera zoom, ⚙ settings.</p>
+      <p>Left thumb: move (push to the edge to sprint). Right thumb: drag to look. Buttons: jump, draw/hide weapon, stab/shoot (drag on it to aim too), throw, pinch with two fingers to zoom the camera in/out, ⚙ settings.</p>
       <h3>Computer controls</h3>
       <p>WASD move · Mouse look (click to lock) · Shift sprint · Space jump · Left click attack · Q draw/hide · Right click / G throw knife · Mouse wheel zoom / V third person · Tab scoreboard · F next spectate · Esc / P settings</p>
       <h3>The X button</h3>
@@ -169,14 +168,12 @@
     <div class="tbtn" data-btn="throw" id="tb-throw">THROW</div>
     <div class="tbtn big" data-btn="attack" id="tb-attack">STAB</div>
     <div class="tbtn" data-btn="next" id="tb-next">▶</div>
-    <div class="tbtn small" data-btn="zoomin" id="tb-zoomin">＋</div>
-    <div class="tbtn small" data-btn="zoomout" id="tb-zoomout">－</div>
     <div class="touch-hint" id="touch-hint">◀ move here · look here ▶</div>
   </div>
 
   <!-- X button: in game = die & spectate, then menu; in menu = leave game -->
   <button id="xbtn" title="X">✕</button>
-  <button id="gearbtn" class="hidden" title="Settings">⚙</button>
+  <button id="gearbtn" class="hidden" title="Settings"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54A.48.48 0 0 0 13.92 2h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.72 8.47a.49.49 0 0 0 .12.61l2.03 1.58c-.04.31-.07.63-.07.94s.03.63.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.25.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button>
 
   <div id="rotate" class="hidden"><div>⟳</div>Rotate your phone sideways for the best experience<button id="rotate-ok" class="btn small">Play anyway</button></div>
 

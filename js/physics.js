@@ -57,17 +57,10 @@ export function groundHeightCells(map, x, z, r, maxY) {
   return g;
 }
 
-// Same, but also counts the tops of physics props (you can stand on boxes, tables...)
+// Same, but also counts the tops of physics props (you can stand on boxes, tables, tipped-over crates...)
 export function groundHeight(map, x, z, r, maxY) {
-  let g = groundHeightCells(map, x, z, r, maxY);
-  for (const p of map.props) {
-    const top = p.y + p.h;
-    if (top <= g || top > maxY) continue;
-    const R = p.r * 0.92 + r;
-    const dx = p.x - x, dz = p.z - z;
-    if (dx * dx + dz * dz < R * R) g = top;
-  }
-  return g;
+  const g = groundHeightCells(map, x, z, r, maxY);
+  return map.propSys ? Math.max(g, map.propSys.topAt(x, z, r, maxY)) : g;
 }
 
 // True if a circle at (x,z) does not overlap any blocking cell (used by bot path smoothing)
@@ -181,22 +174,10 @@ export function moveCharacter(ch, input, dt, map) {
   ch.speed = Math.hypot(ch.vx, ch.vz);
 }
 
-// Keep a character out of props it is not standing on. `amount` 0..1 = how much
-// of the overlap to fix this frame (soft for humans so the host can push the prop).
-export function pushOutOfProps(ch, props, amount = 1) {
-  for (const p of props) {
-    if (ch.y >= p.y + p.h - 0.25 || ch.y + P.HEIGHT < p.y) continue;
-    const px = p.rx ?? p.x, pz = p.rz ?? p.z;
-    const dx = ch.x - px, dz = ch.z - pz, R = p.r + P.RADIUS;
-    if (Math.abs(dx) > R || Math.abs(dz) > R) continue;
-    const d = Math.hypot(dx, dz);
-    if (d >= R || d < 1e-4) continue;
-    const over = (R - d) * amount;
-    ch.x += (dx / d) * over; ch.z += (dz / d) * over;
-    // lose the velocity going into the prop
-    const vn = ch.vx * (-dx / d) + ch.vz * (-dz / d);
-    if (vn > 0) { const k = 0.35 * amount; ch.vx += (dx / d) * vn * k; ch.vz += (dz / d) * vn * k; }
-  }
+// Keep a character out of props (per-part hitboxes). `amount` 0..1 = how much of the
+// overlap to fix this frame (soft for humans so the host can push the prop).
+export function pushOutOfProps(ch, map, amount = 1) {
+  map.propSys?.collideChar(ch, amount, false);
 }
 
 // Push overlapping characters apart (soft). `movable(c)` says who may be moved.

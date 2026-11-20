@@ -100,7 +100,6 @@ export class Input {
       const btn = t.target && t.target.closest ? t.target.closest('[data-btn]') : null;
       if (btn) {
         const name = btn.dataset.btn;
-        if (name === 'zoomin' || name === 'zoomout') { this.zoom += name === 'zoomout' ? 1 : -1; btn.classList.add('down'); setTimeout(() => btn.classList.remove('down'), 120); continue; }
         if (name === 'run') { // sprint is a toggle on phones
           this.runToggle = !this.runToggle;
           btn.classList.toggle('on', this.runToggle);
@@ -111,7 +110,7 @@ export class Input {
         this.press(name);
         this.held[name] = true;
         // the attack button also works as a look-drag area (shoot + aim with one thumb)
-        if (name === 'attack') this.lookTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        if (name === 'attack') this.lookTouches.set(t.identifier, { x: t.clientX, y: t.clientY, btn: true });
         continue;
       }
       const onJoySide = this.lefty ? t.clientX > window.innerWidth * 0.58 : t.clientX < window.innerWidth * 0.42;
@@ -128,10 +127,30 @@ export class Input {
     }
   }
 
+  // two free fingers on the look side = pinch to zoom the camera
+  pinchPair() {
+    const ids = [...this.lookTouches.entries()].filter(([, v]) => !v.btn);
+    return ids.length >= 2 ? [ids[0][1], ids[1][1]] : null;
+  }
+
   onTouchMove(e) {
     if (!this.active) return;
     e.preventDefault();
+    const pair0 = this.pinchPair();
+    const d0 = pair0 ? Math.hypot(pair0[0].x - pair0[1].x, pair0[0].y - pair0[1].y) : 0;
+    if (pair0) {
+      // update positions only; no looking around while pinching
+      for (const t of e.changedTouches) {
+        if (t.identifier === this.joy.id) continue;
+        const lt = this.lookTouches.get(t.identifier);
+        if (lt && !lt.btn) { lt.x = t.clientX; lt.y = t.clientY; }
+      }
+      const pair1 = this.pinchPair();
+      const d1 = Math.hypot(pair1[0].x - pair1[1].x, pair1[0].y - pair1[1].y);
+      this.zoom += (d0 - d1) * 0.02; // fingers apart = zoom in, together = zoom out
+    }
     for (const t of e.changedTouches) {
+      if (pair0 && t.identifier !== this.joy.id && this.lookTouches.get(t.identifier) && !this.lookTouches.get(t.identifier).btn) continue;
       if (t.identifier === this.joy.id) {
         const R = CONFIG.CONTROLS.JOYSTICK_RADIUS;
         let dx = t.clientX - this.joy.ox, dy = t.clientY - this.joy.oy;

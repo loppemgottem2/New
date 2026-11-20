@@ -66,9 +66,9 @@ const rnd = (() => { let s = 12345; return () => { s = (s * 16807) % 2147483647;
 // ======================================================================
 
 // Painted concrete-block wall (2m x 2m tile)
-function wallPainted(S) {
+function wallPainted(S, reps = 1) {
   const [c, ctx] = canvas(S);
-  const bw = S / 5, bh = S / 10; // 0.4 x 0.2 m blocks
+  const bw = S / 5 / reps, bh = S / 10 / reps; // 0.4 x 0.2 m blocks (reps = how many 2 m tiles the texture covers)
   paint(ctx, S, S, (u, v, x, y) => {
     const row = Math.floor(y / bh);
     const off = (row % 2) * bw / 2;
@@ -262,6 +262,88 @@ function pillar(S) {
   return c;
 }
 
+// Worn, stained floorboards for the trashed room (litter + scorch marks)
+function floorDirty(S) {
+  const c = floorWood(S); const ctx = c.getContext('2d');
+  const img = ctx.getImageData(0, 0, S, S), d = img.data;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const n = fbm(x / S, y / S, 4, 4, 401), m = fbm(x / S, y / S, 12, 2, 402);
+    const k = 0.55 + n * 0.35 - Math.max(0, m - 0.6) * 0.6;
+    const i = (y * S + x) * 4; d[i] *= k; d[i + 1] *= k * 0.97; d[i + 2] *= k * 0.9;
+  }
+  ctx.putImageData(img, 0, 0);
+  // litter: paper scraps, cigarette butts, dark spills
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * S, y = rnd() * S;
+    if (rnd() < 0.4) { ctx.fillStyle = `rgba(30,22,14,${0.3 + rnd() * 0.3})`; ctx.beginPath(); ctx.ellipse(x, y, 10 + rnd() * 30, 6 + rnd() * 18, rnd() * 3, 0, 7); ctx.fill(); }
+    else if (rnd() < 0.7) { ctx.save(); ctx.translate(x, y); ctx.rotate(rnd() * 6); ctx.fillStyle = `rgba(${200 + rnd() * 40 | 0},${195 + rnd() * 40 | 0},180,0.85)`; ctx.fillRect(-8, -6, 14 + rnd() * 10, 10 + rnd() * 6); ctx.restore(); }
+    else { ctx.fillStyle = '#d8c8a0'; ctx.fillRect(x, y, 6, 2); ctx.fillStyle = '#a05020'; ctx.fillRect(x + 6, y, 2, 2); }
+  }
+  return c;
+}
+
+// Painted block wall covered in spray-paint tags, peeling paint and grime
+function wallGraffiti(S) {
+  // covers 4 m of wall (2x2 tiles worth of blocks) so the tags repeat less
+  const c = wallPainted(S, 2); const ctx = c.getContext('2d');
+  const img = ctx.getImageData(0, 0, S, S), d = img.data;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const n = fbm(x / S, y / S, 3, 4, 411);
+    const k = 0.72 + n * 0.3;
+    const i = (y * S + x) * 4; d[i] *= k; d[i + 1] *= k * 0.96; d[i + 2] *= k * 0.88;
+  }
+  ctx.putImageData(img, 0, 0);
+  const cols = ['#e0245e', '#18a0e8', '#f2c200', '#2ecc40', '#ff6a00', '#9d4edd', '#111111', '#f5f5f5'];
+  const words = ['KM', 'ZOOT', 'REKT', 'NOPE', 'WAS HERE', 'XO', 'BOOM', 'LOL', 'RUN'];
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 0; i < 6; i++) {
+    const x = rnd() * S * 0.8, y = S * 0.3 + rnd() * S * 0.6;
+    ctx.save(); ctx.translate(x, y); ctx.rotate((rnd() - 0.5) * 0.4);
+    ctx.font = `bold ${Math.floor(22 + rnd() * 22)}px Impact, Arial Black, sans-serif`;
+    const col = cols[Math.floor(rnd() * cols.length)];
+    ctx.strokeStyle = cols[Math.floor(rnd() * cols.length)]; ctx.lineWidth = 6; ctx.globalAlpha = 0.8;
+    const w = words[Math.floor(rnd() * words.length)];
+    ctx.strokeText(w, 0, 0); ctx.fillStyle = col; ctx.fillText(w, 0, 0);
+    // paint drips
+    ctx.fillStyle = col; for (let k = 0; k < 4; k++) ctx.fillRect(rnd() * 80, 4, 2, 8 + rnd() * 24);
+    ctx.restore();
+  }
+  // squiggles
+  for (let i = 0; i < 5; i++) {
+    ctx.strokeStyle = cols[Math.floor(rnd() * cols.length)]; ctx.globalAlpha = 0.7; ctx.lineWidth = 3 + rnd() * 3;
+    ctx.beginPath(); let x = rnd() * S, y = S * 0.3 + rnd() * S * 0.5; ctx.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (rnd() - 0.3) * 50; y += (rnd() - 0.5) * 40; ctx.quadraticCurveTo(x - 20, y - 30, x, y); }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  return c;
+}
+
+// Flat concrete roof: tar seams, gravel, water stains
+function roof(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 8, 4, 421), st = fbm(u, v, 2, 3, 422);
+    let b = 132 + (n - 0.5) * 40 + hash(x, y, 423) * 22 - Math.max(0, st - 0.55) * 70;
+    if (x % (S / 2) < 4 || y % (S / 2) < 4) b = 48; // tar-sealed joints
+    return [b, b * 0.98, b * 0.95];
+  });
+  return c;
+}
+
+function mattress(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const stripe = (x % 24) < 12 ? 236 : 214;
+    const stain = fbm(u, v, 3, 4, 431);
+    const k = stain > 0.58 ? 1 - (stain - 0.58) * 1.6 : 1;
+    return [stripe * k, stripe * k * 0.96, stripe * k * 0.86];
+  });
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 2;
+  for (let y = 16; y < S; y += 32) for (let x = 16; x < S; x += 32) { ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.stroke(); }
+  return c;
+}
+
 // ======================================================================
 //  Props
 // ======================================================================
@@ -448,6 +530,10 @@ export function makeTextures(renderer, quality = 'medium') {
   T.shelf = tex(shelf(256));
   T.counter = tex(counter(256));
   T.pillar = tex(pillar(256));
+  T.floorDirty = tex(floorDirty(S));
+  T.wallGraffiti = tex(wallGraffiti(S));
+  T.roof = tex(roof(256));
+  T.mattress = tex(mattress(128));
   T.cardboard = tex(cardboard(128));
   T.crate = tex(crate(256));
   T.wood = tex(woodProp(128));
@@ -470,7 +556,8 @@ export function makeTextures(renderer, quality = 'medium') {
     const d = img.data;
     for (let y = 0; y < 300; y++) for (let x = 0; x < 1024; x++) {
       const n = fbm(x / 1024, y / 512, 4, 5, 191);
-      const cl = Math.max(0, n - 0.52) * 3 * (1 - y / 300);
+      const top = Math.min(1, Math.max(0, (y - 60) / 90));       // fade clouds out toward the zenith
+      const cl = Math.max(0, n - 0.52) * 3 * (1 - y / 300) * top;
       const i = (y * 1024 + x) * 4;
       d[i] += (255 - d[i]) * cl; d[i + 1] += (255 - d[i + 1]) * cl; d[i + 2] += (255 - d[i + 2]) * cl;
     }

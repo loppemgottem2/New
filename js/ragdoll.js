@@ -146,16 +146,9 @@ export class Ragdoll {
         q.x += (ddx / d) * push; q.z += (ddz / d) * push;
       }
     }
-    // physics props (boxes, tables...): land on top or get pushed out sideways
-    for (const pr of map.props) {
-      const dx = q.x - pr.x, dz = q.z - pr.z, R = pr.r + q.r * 0.5;
-      if (Math.abs(dx) > R || Math.abs(dz) > R) continue;
-      const top = pr.y + pr.h;
-      if (q.y - q.r > top || q.y + q.r < pr.y) continue;
-      const d = Math.hypot(dx, dz);
-      if (d >= R) continue;
-      if (q.py - q.r >= top - 0.06) { if (top > support) support = top; }
-      else if (d > 1e-4) { q.x = pr.x + (dx / d) * R; q.z = pr.z + (dz / d) * R; }
+    // physics props: per-part hitboxes (lands on top / pushed out of the sides)
+    if (map.propSys && map.propSys.pushPoint(q, q.r * 0.8)) {
+      q.px = q.x - (q.x - q.px) * 0.6; q.pz = q.z - (q.z - q.pz) * 0.6;
     }
     const floor = support + q.r;
     if (q.y < floor) {

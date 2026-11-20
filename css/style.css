@@ -192,7 +192,8 @@ body.touch #hud-stamina { bottom: calc(28px + var(--sa-b)); }
 #settings.overlay { background: rgba(0,0,0,0.35); z-index: 40; }
 
 /* character editor */
-#editor { justify-content: flex-start; align-items: stretch; }
+#editor { justify-content: flex-start; align-items: stretch; touch-action: none; cursor: grab; }
+#editor .editor-panel { cursor: auto; touch-action: pan-y; }
 .editor-panel { width: min(380px, 52vw); max-height: 100%; }
 .ed-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .ed-row .val { flex: 1; text-align: center; text-transform: capitalize; }
@@ -202,7 +203,6 @@ body.touch #hud-stamina { bottom: calc(28px + var(--sa-b)); }
 .sw.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent-2); }
 .ed-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .small-note { font-size: 11px; }
-.editor-hint { position: absolute; right: 20px; bottom: calc(16px + var(--sa-b)); color: rgba(255,255,255,0.6); font-size: 13px; pointer-events: none; }
 @media (max-width: 560px) { .editor-panel { width: 58vw; padding: 10px; } }
 
 /* gear button */
@@ -216,8 +216,6 @@ body:not(.touch) #gearbtn { right: calc(62px + var(--sa-r)); }
 /* touch: scalable buttons + zoom */
 .tbtn { transform: scale(var(--btn-scale)); }
 .tbtn.small { width: 40px; height: 40px; font-size: 20px; border-radius: 8px; }
-#tb-zoomin { right: calc(224px + var(--sa-r)); top: calc(12px + var(--sa-t)); }
-#tb-zoomout { right: calc(176px + var(--sa-r)); top: calc(12px + var(--sa-t)); }
 /* left-handed: mirror the button layout */
 body.lefty #tb-attack { right: auto; left: calc(26px + var(--sa-l)); }
 body.lefty #tb-next { right: auto; left: calc(38px + var(--sa-l)); }

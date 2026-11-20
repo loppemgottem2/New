@@ -351,8 +351,13 @@ export class CharacterModel {
     let legLx = Math.sin(ph) * amp, legRx = -Math.sin(ph) * amp;
     let kneeL = -Math.max(0, -Math.sin(ph)) * amp * 1.6 - runAmt * 0.3 - 0.05;
     let kneeR = -Math.max(0, Math.sin(ph)) * amp * 1.6 - runAmt * 0.3 - 0.05;
-    if (!s.onGround) { legLx = 0.55; legRx = 0.1; kneeL = -1.0; kneeR = -0.5; }
-    this.legL.hip.rotation.set(legLx, 0, 0.02); this.legR.hip.rotation.set(legRx, 0, -0.02);
+    let legLz = -0.02, legRz = 0.02;
+    if (!s.onGround) {
+      // little "hop" pose: right knee up, out and bent; left leg back, slightly out and bent
+      legRx = 0.95; legRz = 0.32; kneeR = -1.35;
+      legLx = -0.35; legLz = -0.16; kneeL = -0.85;
+    }
+    this.legL.hip.rotation.set(legLx, 0, legLz); this.legR.hip.rotation.set(legRx, 0, legRz);
     this.legL.kn.rotation.x = kneeL; this.legR.kn.rotation.x = kneeR;
 
     const bob = Math.abs(Math.sin(ph)) * 0.035 * moving;

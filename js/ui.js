@@ -104,8 +104,8 @@ export class UI {
     this._set('hud-timer', ph);
 
     // identity panel (bottom-left, colored like your clothes)
-    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.role === 'none' ? '' : s.hasGun ? 'Sheriff' : 'Bystander';
-    this._set('hud-name', me.alive ? me.bname : me.nick);
+    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.hasGun ? 'Sheriff' : '';
+    this._set('hud-name', me.nick);
     this._set('hud-role', roleTxt);
     const col = me.alive ? textColor(me.color) : '#888';
     if (this.lastHud.col !== col) { $('hud-id').style.borderColor = me.alive ? hexToCss(me.color) : '#888'; $('hud-name').style.color = col; this.lastHud.col = col; }
@@ -130,11 +130,11 @@ export class UI {
 
     // look-at name
     const look = s.look;
-    const lk = look ? `${look.bname}|${look.color}` : '';
+    const lk = look ? `${look.nick}|${look.color}` : '';
     if (this.lastHud.lk !== lk) {
       this.lastHud.lk = lk;
       const el = $('hud-look');
-      el.textContent = look ? look.bname : '';
+      el.textContent = look ? look.nick : '';
       el.style.color = look ? textColor(look.color) : '';
     }
     $('crosshair').style.display = me.alive ? 'block' : 'none';
@@ -142,7 +142,7 @@ export class UI {
     // spectate info
     let sp = '';
     if (!me.alive) {
-      if (s.spec) sp = `Spectating <b style="color:${textColor(s.spec.color)}">${esc(s.spec.bname)}</b>`;
+      if (s.spec) sp = `Spectating <b style="color:${textColor(s.spec.color)}">${esc(s.spec.nick)}</b>`;
       sp += `<small>${this.isTouch ? 'Tap ▶ to switch · X = main menu' : 'Click / F to switch · X = main menu'}</small>`;
     }
     this._setHtml('hud-spec', sp);
@@ -165,7 +165,6 @@ export class UI {
       tb('jump', alive);
       tb('run', alive);
       tb('next', !alive);
-      tb('zoomin', true); tb('zoomout', true);
     }
     if (this.scoreOpen && Math.random() < 0.05) this.refreshScoreboard();
   }

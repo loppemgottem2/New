@@ -96,18 +96,53 @@ export const Audio = {
     this._tone(d, 70, 0.35, 1.0, 'sine', 0, 35);
     this._noise(d, 0.25, 300, 1, 'lowpass', 0.8);
   },
-  // footstep; surface = floor type ('tile','wood','carpet','concrete','grass','asphalt')
+  // Footstep matched to the floor. surface = 'tile','wood','carpet','concrete','grass','asphalt','dirty'
   step(pos, loud = 0.6, surface = 'tile', vol = 1) {
     if (!ctx) return;
     const d = this._out(pos, 4);
     const g = loud * vol * (pos ? 1.3 : 0.9);
+    const vary = 0.9 + Math.random() * 0.2;
     switch (surface) {
-      case 'grass': this._noise(d, 0.12, 900 + Math.random() * 300, 0.8, 'lowpass', g * 0.9); break;
-      case 'carpet': this._noise(d, 0.08, 500, 0.7, 'lowpass', g * 0.7); this._tone(d, 70, 0.07, g * 0.4, 'sine'); break;
-      case 'wood': this._tone(d, 110 + Math.random() * 20, 0.09, g * 0.7, 'triangle', 0, 80); this._noise(d, 0.06, 1500, 1.2, 'bandpass', g * 0.6); break;
-      case 'concrete': case 'asphalt': this._noise(d, 0.07, 2200 + Math.random() * 600, 1.4, 'bandpass', g); this._tone(d, 90, 0.05, g * 0.35, 'sine'); break;
-      default: this._noise(d, 0.06, 3000 + Math.random() * 600, 1.6, 'bandpass', g); this._tone(d, 100, 0.05, g * 0.35, 'sine'); break; // tile: clicky
+      case 'grass':
+        // soft crunchy rustle: high, airy noise with a slow-ish attack and no knock
+        this._env(d, 'highpass', 2600 * vary, 0.5, g * 0.55, 0.025, 0.16);
+        this._env(d, 'bandpass', 5200 * vary, 0.8, g * 0.3, 0.04, 0.12, 0.03);
+        this._noise(d, 0.08, 300, 0.7, 'lowpass', g * 0.25);
+        break;
+      case 'carpet':
+        this._noise(d, 0.09, 380 * vary, 0.7, 'lowpass', g * 0.8);
+        this._tone(d, 65 * vary, 0.08, g * 0.35, 'sine');
+        break;
+      case 'wood': case 'dirty':
+        // hollow boards: low knock + a little creak
+        this._tone(d, 160 * vary, 0.1, g * 0.7, 'triangle', 0, 95);
+        this._noise(d, 0.07, 900 * vary, 1.6, 'bandpass', g * 0.55);
+        if (Math.random() < 0.15) this._tone(d, 420 + Math.random() * 200, 0.12, g * 0.08, 'sawtooth', 0.02, 380);
+        break;
+      case 'concrete': case 'asphalt':
+        // gritty scuff on hard ground
+        this._noise(d, 0.06, 1500 * vary, 1.1, 'bandpass', g * 0.75);
+        this._noise(d, 0.05, 3200, 0.9, 'highpass', g * 0.25, 0.012);
+        this._tone(d, 85 * vary, 0.06, g * 0.45, 'sine');
+        break;
+      default: // tile: a firm, short "tock" (no hiss)
+        this._noise(d, 0.04, 1100 * vary, 1.2, 'lowpass', g * 0.8);
+        this._tone(d, 210 * vary, 0.05, g * 0.45, 'triangle', 0, 150);
+        this._tone(d, 95, 0.06, g * 0.35, 'sine');
+        break;
     }
+  },
+  // filtered noise with a soft attack (rustles)
+  _env(dest, type, freq, q, gain, attack, dur, t0 = 0) {
+    const now = ctx.currentTime + t0;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(gain, now + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    src.connect(f); f.connect(g); g.connect(dest);
+    src.start(now, Math.random() * 0.5); src.stop(now + dur + 0.05);
   },
   jump(pos) {
     if (!ctx) return;
@@ -127,6 +162,8 @@ export const Audio = {
     const d = this._out(pos, 4);
     const g = 0.3 + v * 0.9;
     if (kind === 'metal') { this._tone(d, 220 + Math.random() * 60, 0.5, g * 0.5, 'triangle', 0, 180); this._tone(d, 523, 0.35, g * 0.25, 'sine'); this._noise(d, 0.1, 2500, 2, 'bandpass', g * 0.6); }
+    else if (kind === 'glass') { this._tone(d, 2600 + Math.random() * 900, 0.18, g * 0.35, 'sine'); this._tone(d, 4100 + Math.random() * 500, 0.12, g * 0.2, 'sine', 0.02); }
+    else if (kind === 'soft') { this._noise(d, 0.14, 250, 0.7, 'lowpass', g * 0.9); }
     else if (kind === 'cardboard') { this._noise(d, 0.12, 600, 1, 'lowpass', g); this._tone(d, 120, 0.08, g * 0.4, 'sine'); }
     else { this._tone(d, 150 + Math.random() * 40, 0.14, g * 0.8, 'triangle', 0, 90); this._noise(d, 0.08, 1200, 1.4, 'bandpass', g * 0.7); }
   },

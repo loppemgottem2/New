@@ -81,7 +81,7 @@ const ui = new UI();
 ui.setTouch(touch);
 const input = new Input({ touchRoot: $('touch'), canvas, joyBase: $('joy-base'), joyKnob: $('joy-knob') });
 
-let textures, map, nav, glow, preview = null;
+let textures, map, nav, glow, preview = null, skyDome = null;
 const lightPool = [];
 
 // lights for moving things (characters / props). The level itself is pre-lit (baked).
@@ -273,9 +273,15 @@ function makePreview() {
 }
 const PREVIEW = { x: 58.4, z: 49 };
 let dragX = null;
-canvas.addEventListener('pointerdown', (e) => { if (ui.current === 'editor') dragX = e.clientX; });
-window.addEventListener('pointermove', (e) => { if (dragX !== null && preview) { preview.yaw += (e.clientX - dragX) * 0.012; dragX = e.clientX; } });
+$('editor').addEventListener('pointerdown', (e) => {
+  if (ui.current !== 'editor' || e.target.closest('.editor-panel')) return;
+  dragX = e.clientX; userSpun = true;
+  e.preventDefault();
+});
+let userSpun = false;
+window.addEventListener('pointermove', (e) => { if (dragX !== null && preview) { preview.yaw += (e.clientX - dragX) * 0.014; dragX = e.clientX; } });
 window.addEventListener('pointerup', () => { dragX = null; });
+window.addEventListener('pointercancel', () => { dragX = null; });
 $('btn-editor').onclick = () => { buildEditor(); ui.show('editor'); ui.current = 'editor'; makePreview(); };
 $('btn-editor-done').onclick = () => { ui.show('menu'); ui.current = 'menu'; if (preview) preview.model.setVisible(false); };
 $('btn-editor-random').onclick = () => { settings.look = { ...randomLook(), skin: settings.look.skin }; lookChanged(); };
@@ -551,7 +557,7 @@ function frame(now) {
   } else if (ui.current === 'editor' && preview) {
     // character editor: look at the preview model
     preview.t += dt;
-    if (dragX === null) preview.yaw += dt * 0.35;
+    if (dragX === null && !userSpun) preview.yaw += dt * 0.35; // slow spin until you grab it
     preview.model.setVisible(true);
     preview.model.update(dt, { x: PREVIEW.x, y: 0, z: PREVIEW.z, yaw: preview.yaw, pitch: Math.sin(preview.t * 0.7) * 0.08, speed: 0, onGround: true, weapon: 0 }, 0);
     const wide = window.innerWidth / window.innerHeight;
@@ -570,6 +576,7 @@ function frame(now) {
     input.read();
   }
   updateDynLights(dt);
+  if (skyDome) { skyDome.position.copy(camera.position); skyDome.position.y -= camera.far * 0.06; skyDome.scale.setScalar(camera.far * 0.9); }
   renderer.render(scene, camera);
   if (settings.fps) {
     fpsAcc += dt; fpsN++;
@@ -594,9 +601,12 @@ async function init() {
   nav = new NavGrid(map);
   console.log(`map built + baked in ${Math.round(performance.now() - t0)} ms`);
   // sky dome
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(320, 24, 12), new THREE.MeshBasicMaterial({ map: textures.sky, side: THREE.BackSide, fog: false, toneMapped: false }));
-  sky.position.set(map.worldW / 2, -20, map.worldD / 2);
-  scene.add(sky);
+  // the sky dome follows the camera and always fits inside the view distance
+  // (if it were cut off by the far plane you'd see a flat disc overhead)
+  skyDome = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), new THREE.MeshBasicMaterial({ map: textures.sky, side: THREE.BackSide, fog: false, toneMapped: false, depthWrite: false }));
+  skyDome.renderOrder = -1;
+  skyDome.frustumCulled = false;
+  scene.add(skyDome);
   // soft glow around every ceiling light (one draw call)
   {
     const pos = new Float32Array(map.lights.length * 3);
