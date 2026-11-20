@@ -12,6 +12,7 @@
 //            T  table              X  barrel             M  mattress
 //            L  floor lamp         b  beer bottle        U  trash can
 //            f  takeout food boxes  p  pile of beer bottles   m  stack of mattresses
+//            V  two barrels stacked Y  pile of 3 barrels lying on their sides
 //   MARKERS  S  spawn point        G  gun part spot
 //  Markers / props / solid furniture take the floor type of their neighbours.
 //  Indoor floors get a ceiling with lights automatically (every 3rd cell).
@@ -28,8 +29,8 @@ export const LAYOUT = [
   '############################################################',
   '############################################################',
   '##;QQQQ;;;;;;;;;#....#................#....#_____________G##',
-  '##;;;;;;;;;;;;B;#..G.#..S............G#....#CB__S____B__B_##',
-  '##;;S;;;;;;;;;B;#....#...K....K....K..#....#______________##',
+  '##;;;;;;;;;;;;;;#..G.#..S............G#....#CB__S____B__B_##',
+  '##;;S;;;;;;;;;;;#....#...K....K....K..#....#______________##',
   '##;;WWW;;;WWW;;;#....#..KTK..KTK..KTK.#....#__QQQQQQQQQ___##',
   '##;;;K;;;;;K;;;;#....#...K....K....K..#....#_____________S##',
   '##G;;;;;;;;;S;;;............................C__B__G_B___C_##',
@@ -39,7 +40,7 @@ export const LAYOUT = [
   '##;S;;;;;G;;;;;;#....#...K....K....K..#....#_B____BS___B__##',
   '##;;;;;;;;;;;;;G#....#.S..............#....#____________C_##',
   '##;;WWW;;;WWW;;;#....#.......S........#..S.#_SQQQQQQQQQ___##',
-  '##;;;K;;;;;K;B;;#....#.WWWWW..........#....#______________##',
+  '##;;;K;;;;;K;;;;#....#.WWWWW..........#....#______________##',
   '##;;;;;;S;;;;;;;#....#.........G......#....#__B__B___G__B_##',
   '#######...#######....#######....#######....######...########',
   '##.................................G......................##',
@@ -72,16 +73,16 @@ export const LAYOUT = [
   '##;;;;;;;;;;;;;;#....#________________#....#aaaaaGaaaaaaaa##',
   '##;S;;;;;;;;;;;;#....#_WWWW____WWWWWWW#....#aaaaaaaaaaaaaa##',
   '##;;QQQQQQQQQ;;;#....#__K______S_____G#....#aaaaaaaaaaaaaa##',
-  '##;;;;;;;;G;;;;;#....#__________X_X_X_#....#aaaaaaaaaaaaSa##',
-  '##;;;;;;;;;;;;S;#....#_S___B__________#....#aaaaaaaaaaaaaa##',
-  '##;;QQQQQQQQQ;;;......__________X_X_X_......aaaSaaaaaaaaaa##',
-  '##G;;;;;;;;;;;;;...S..__C_C___________......aaaaaaaaaaaaaa##',
-  '##;;;;;;;;;;;;;;......__________X_X_X_......aaaaaaaaaaaaaG##',
-  '##;;QQQQQQQQQ;;;#....#_C_____________S#....#aaaaaaaaaaaaaa##',
-  '##;;;;;;;;;;;;;;#....#______B___X_X_X_#....#aaaaaaaaaaaaaa##',
-  '##;;;;;;;;;;;S;;#....#________________#.S..#aSaaaaaaaaaaaa##',
-  '##;;KTK;;;KTK;;;#....#___K__G___X_X_X_#....#aaaaaaaaaaaaaa##',
-  '##;;;K;;;;;K;;;;#....#_WWWW___________#....#aaaaaaaaaaaaaa##',
+  '##;;;;;;;;G;;;;;#....#__________XX_XXV#....#aaaaaaaaaaaaSa##',
+  '##;;;;;;;;;;;;S;#....#_S___B____XX_XX_#....#aaaaaaaaaaaaaa##',
+  '##;;QQQQQQQQQ;;;......_________X______......aaaSaaaaaaaaaa##',
+  '##G;;;;;;;;;;;;;...S..__C_C_____XX_XXV......aaaaaaaaaaaaaa##',
+  '##;;;;;;;;;;;;;;......__________XX_XX_......aaaaaaaaaaaaaG##',
+  '##;;QQQQQQQQQ;;;#....#_C_______X_____S#....#aaaaaaaaaaaaaa##',
+  '##;;;;;;;;;;;;;;#....#______B___XX_XXV#....#aaaaaaaaaaaaaa##',
+  '##;;;;;;;;;;;S;;#....#__________XX_XX_#.S..#aSaaaaaaaaaaaa##',
+  '##;;KTK;;;KTK;;;#....#___K__G_________#....#aaaaaaaaaaaaaa##',
+  '##;;;K;;;;;K;;;;#....#_WWWW_____Y__Y_Y#....#aaaaaaaaaaaaaa##',
   '##;;;;;;S;;;;;;G#....#G_____S_________#....#GaaaaaaaSaaaaa##',
   '############################################################',
   '############################################################',
@@ -93,7 +94,7 @@ const SOLID = { '#': [K.WALL, WALL_H], 'P': [K.PILLAR, WALL_H], 'Q': [K.SHELF, 2
 const FLOOR_CH = { '.': 'tile', ',': 'wood', ';': 'carpet', '_': 'concrete', 'o': 'grass', 'a': 'asphalt', '~': 'dirty' };
 const FLOOR_LIST = ['tile', 'wood', 'carpet', 'concrete', 'grass', 'asphalt', 'dirty'];
 const OUTDOOR = new Set(['grass', 'asphalt']);
-export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel', M: 'mattress', L: 'lamp', b: 'bottle', U: 'trashcan', f: 'takeout', p: 'bottle', m: 'mattress' };
+export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel', M: 'mattress', L: 'lamp', b: 'bottle', U: 'trashcan', f: 'takeout', p: 'bottle', m: 'mattress', V: 'barrel', Y: 'barrel' };
 export const ROOF_T = 0.55;   // thickness of the concrete roof slab above the ceilings
 
 // ---- lighting constants (baked into vertex colors) ----
@@ -169,6 +170,12 @@ export class GameMap {
         } else if (ch === 'm') {
           // stack of old mattresses (they get stacked on top of each other when spawned)
           for (let k = 0; k < 3; k++) this.propSpawns.push({ type: 'mattress', x: cx + jit(k) * 0.2, z: cz + jit(k + 5) * 0.2, yaw: yaw + jit(k + 2) * 0.4, tip: false });
+        } else if (ch === 'V') {
+          // two upright barrels, one on top of the other
+          for (let k = 0; k < 2; k++) this.propSpawns.push({ type: 'barrel', x: cx, z: cz, yaw: jit(k) * 0.5, tip: false });
+        } else if (ch === 'Y') {
+          // pyramid: two barrels lying side by side, one lying on top
+          for (const [oz, k] of [[-0.33, 0], [0.33, 1], [0, 2]]) this.propSpawns.push({ type: 'barrel', x: cx, z: cz + oz, yaw: 0, tip: true, tipAxis: 'z' });
         } else if (ch === 'f') {
           this.propSpawns.push({ type: 'takeout', x: cx - 0.15, z: cz + jit(1) * 0.3, yaw: jit(2) * 6.28, tip: false });
           this.propSpawns.push({ type: 'takeout', x: cx + 0.2, z: cz + jit(3) * 0.3, yaw: jit(4) * 6.28, tip: true });
