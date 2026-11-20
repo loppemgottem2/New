@@ -1,70 +1,94 @@
 // =====================================================================
-//  MAIN.JS — starts everything: renderer, map, menus, matchmaking, loop.
+//  MAIN.JS — starts everything: renderer, map, menus, settings,
+//  character editor, matchmaking and the main loop.
 // =====================================================================
 import * as THREE from '../vendor/three.module.min.js';
 import { CONFIG } from './config.js';
 import { store, makeCode, clamp } from './util.js';
-import { makeTextures } from './textures.js';
+import { makeTextures, FACES } from './textures.js';
 import { GameMap } from './map.js';
 import { NavGrid } from './nav.js';
 import { Input, isTouchDevice } from './input.js';
 import { UI } from './ui.js';
 import { Audio } from './audio.js';
 import { Game } from './game.js';
+import { CharacterModel, DEFAULT_LOOK, randomLook, sanitizeLook } from './character.js';
 import { NetHost, NetClient, probePublicServers, publicId, privateId, netAvailable, LOCAL_MODE } from './net.js';
 
 const $ = (id) => document.getElementById(id);
 let game = null; // the current match (null while in the menu)
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
-// ---------------- settings ----------------
+// =====================================================================
+//  SETTINGS — add a new option by adding a line to SCHEMA below.
+// =====================================================================
+const touch = isTouchDevice();
 const DEFAULTS = {
   name: 'Player' + Math.floor(Math.random() * 900 + 100),
-  touchSens: CONFIG.CONTROLS.TOUCH_SENS * 1000, // shown as 1..20
-  mouseSens: CONFIG.CONTROLS.MOUSE_SENS * 1000,
-  fov: CONFIG.GRAPHICS.FOV,
-  volume: 0.8,
-  quality: isTouchDevice() ? 'medium' : 'high',
-  invert: false,
-  fps: false,
+  look: randomLook(),
+  touchSens: CONFIG.CONTROLS.TOUCH_SENS * 1000, mouseSens: CONFIG.CONTROLS.MOUSE_SENS * 1000,
+  invert: false, autoSprint: true, lefty: false, btnScale: 1,
+  fov: CONFIG.GRAPHICS.FOV, camDist: 0, viewBob: true, shake: true,
+  quality: touch ? 'medium' : 'high', ...CONFIG.GRAPHICS.PRESETS[touch ? 'medium' : 'high'], fog: true, antialias: !touch,
+  volume: 1, footVol: 1,
+  fps: false, crosshair: 'dot', hudScale: 1, hints: true,
 };
 const settings = { ...DEFAULTS, ...store.get('killermystery-settings', {}) };
+settings.look = sanitizeLook(settings.look);
 const saveSettings = () => store.set('killermystery-settings', settings);
+const pct = (v) => `${Math.round(v * 100)}%`;
+const SCHEMA = [
+  { tab: 'Controls', key: 'touchSens', label: 'Touch look sensitivity', type: 'range', min: 1, max: 20, step: 0.5, fmt: (v) => v.toFixed(1) },
+  { tab: 'Controls', key: 'mouseSens', label: 'Mouse sensitivity', type: 'range', min: 0.5, max: 8, step: 0.1, fmt: (v) => v.toFixed(1) },
+  { tab: 'Controls', key: 'invert', label: 'Invert look up/down', type: 'check' },
+  { tab: 'Controls', key: 'autoSprint', label: 'Auto-sprint', note: 'sprint when the stick is pushed to the edge', type: 'check' },
+  { tab: 'Controls', key: 'lefty', label: 'Left-handed layout', note: 'joystick on the right, buttons on the left', type: 'check' },
+  { tab: 'Controls', key: 'btnScale', label: 'Touch button size', type: 'range', min: 0.7, max: 1.4, step: 0.05, fmt: pct },
+  { tab: 'Camera', key: 'fov', label: 'Field of view', type: 'range', min: 60, max: 110, step: 1, fmt: (v) => `${v}°` },
+  { tab: 'Camera', key: 'camDist', label: 'Starting camera', type: 'select', options: [[0, 'First person'], [1.6, 'Third person (close)'], [3, 'Third person (far)']] },
+  { tab: 'Camera', key: 'viewBob', label: 'View bobbing', type: 'check' },
+  { tab: 'Camera', key: 'shake', label: 'Camera shake', note: 'when shooting and landing', type: 'check' },
+  { tab: 'Graphics', key: 'quality', label: 'Quality preset', type: 'select', options: [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']] },
+  { tab: 'Graphics', key: 'renderScale', label: 'Resolution', type: 'range', min: 0.4, max: 2, step: 0.05, fmt: pct },
+  { tab: 'Graphics', key: 'dynLights', label: 'Real-time lights', note: 'ceiling lights shine on people & furniture', type: 'select', options: [[0, 'Off (baked only)'], [4, '4'], [6, '6'], [8, '8'], [12, '12']] },
+  { tab: 'Graphics', key: 'viewDist', label: 'View distance', type: 'range', min: 50, max: 250, step: 10, fmt: (v) => `${v} m` },
+  { tab: 'Graphics', key: 'fog', label: 'Fog', type: 'check' },
+  { tab: 'Graphics', key: 'glow', label: 'Light glow', type: 'check' },
+  { tab: 'Graphics', key: 'antialias', label: 'Smooth edges (anti-aliasing)', note: 'applies after reloading the page', type: 'check' },
+  { tab: 'Audio', key: 'volume', label: 'Master volume', type: 'range', min: 0, max: 1.5, step: 0.05, fmt: pct },
+  { tab: 'Audio', key: 'footVol', label: 'Footsteps volume', type: 'range', min: 0, max: 2, step: 0.05, fmt: pct },
+  { tab: 'HUD', key: 'crosshair', label: 'Crosshair', type: 'select', options: [['dot', 'Dot'], ['cross', 'Cross'], ['circle', 'Circle'], ['none', 'None']] },
+  { tab: 'HUD', key: 'hudScale', label: 'HUD size', type: 'range', min: 0.7, max: 1.4, step: 0.05, fmt: pct },
+  { tab: 'HUD', key: 'fps', label: 'Show FPS', type: 'check' },
+  { tab: 'HUD', key: 'hints', label: 'Show control hints', type: 'check' },
+];
 
 // ---------------- renderer / scene ----------------
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !!settings.antialias, powerPreference: 'high-performance' });
 renderer.setClearColor(0x8fbbe8);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xb8cde0, 40, 140);
-const camera = new THREE.PerspectiveCamera(settings.fov, 1, 0.05, 400);
+const fog = new THREE.Fog(0xb9c9d8, 40, 140);
+scene.fog = fog;
+const camera = new THREE.PerspectiveCamera(settings.fov, window.innerWidth / window.innerHeight, 0.05, 400);
 scene.add(camera);
 
-const textures = makeTextures(renderer);
-const map = new GameMap();
-scene.add(map.build(textures));
-const nav = new NavGrid(map);
+const ui = new UI();
+ui.setTouch(touch);
+const input = new Input({ touchRoot: $('touch'), canvas, joyBase: $('joy-base'), joyKnob: $('joy-knob') });
 
-// lights: soft sky light + sun (no shadows = fast on phones)
-scene.add(new THREE.HemisphereLight(0xdfe9ff, 0x6a5a48, 1.6));
-const sun = new THREE.DirectionalLight(0xfff2dd, 1.4);
-sun.position.set(30, 60, 20);
+let textures, map, nav, glow, preview = null;
+const lightPool = [];
+
+// lights for moving things (characters / props). The level itself is pre-lit (baked).
+const hemi = new THREE.HemisphereLight(0xf2f4ff, 0x8a7a68, 2.4);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2dd, 0.9);
+sun.position.set(45, 82, 36);
 scene.add(sun);
-// sky dome
-{
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(300, 24, 12), new THREE.MeshBasicMaterial({ map: textures.sky, side: THREE.BackSide, fog: false }));
-  sky.position.set(map.worldW / 2, 0, map.worldD / 2);
-  scene.add(sky);
-}
 
-function applyGraphics() {
-  const q = settings.quality;
-  const maxPR = q === 'low' ? 0.75 : q === 'medium' ? 1.0 : CONFIG.GRAPHICS.MAX_PIXEL_RATIO;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxPR));
-  scene.fog.far = q === 'low' ? 90 : 140;
-  camera.far = q === 'low' ? 160 : 400;
-  camera.fov = settings.fov;
-  resize();
-}
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
@@ -75,37 +99,204 @@ function resize() {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
-// ---------------- UI / input ----------------
-const ui = new UI();
-ui.setTouch(isTouchDevice());
-const input = new Input({ touchRoot: $('touch'), canvas, joyBase: $('joy-base'), joyKnob: $('joy-knob') });
-function applyInputSettings() {
+function setDynLights(n) {
+  while (lightPool.length > n) scene.remove(lightPool.pop());
+  while (lightPool.length < n) {
+    const l = new THREE.PointLight(0xffe2bc, 0, 11, 2);
+    scene.add(l); lightPool.push(l);
+  }
+}
+let lightT = 0;
+function updateDynLights(dt) {
+  if (!lightPool.length || !map) return;
+  lightT -= dt;
+  if (lightT > 0) return;
+  lightT = 0.2;
+  const p = camera.position;
+  const near = map.lights.map((L) => [L, (L.x - p.x) ** 2 + (L.z - p.z) ** 2]).sort((a, b) => a[1] - b[1]).slice(0, lightPool.length);
+  lightPool.forEach((l, i) => {
+    const L = near[i] && near[i][0];
+    if (!L) { l.intensity = 0; return; }
+    l.position.set(L.x, L.y - 0.3, L.z);
+    l.intensity = 9;
+  });
+}
+
+function applyAll() {
+  // graphics
+  const pr = clamp(Math.min(window.devicePixelRatio || 1, 2) * settings.renderScale, 0.35, 2.5);
+  renderer.setPixelRatio(pr);
+  fog.near = settings.viewDist * 0.3; fog.far = settings.viewDist;
+  scene.fog = settings.fog ? fog : null;
+  camera.far = settings.viewDist + 60;
+  camera.fov = settings.fov;
+  if (glow) glow.visible = !!settings.glow;
+  setDynLights(+settings.dynLights || 0);
+  // input
   input.touchSens = settings.touchSens / 1000;
   input.mouseSens = settings.mouseSens / 1000;
   input.invertY = settings.invert;
+  input.autoSprint = settings.autoSprint;
+  input.lefty = settings.lefty;
+  document.body.classList.toggle('lefty', !!settings.lefty);
+  document.documentElement.style.setProperty('--btn-scale', settings.btnScale);
+  document.documentElement.style.setProperty('--hud-scale', settings.hudScale);
+  $('crosshair').className = settings.crosshair === 'dot' ? '' : settings.crosshair;
   Audio.setVolume(settings.volume);
   $('fps').classList.toggle('hidden', !settings.fps);
+  resize();
 }
-applyGraphics();
-applyInputSettings();
-$('version').textContent = `v${CONFIG.VERSION}${LOCAL_MODE ? ' · LOCAL TEST NETWORK' : ''}`;
 
+// ---------------- settings screen (built from SCHEMA) ----------------
+let settingsTab = 'Controls';
+function buildSettings() {
+  const tabs = [...new Set(SCHEMA.map((s) => s.tab))];
+  $('settings-tabs').innerHTML = '';
+  for (const t of tabs) {
+    const b = document.createElement('button');
+    b.className = 'tab' + (t === settingsTab ? ' on' : '');
+    b.textContent = t;
+    b.onclick = () => { settingsTab = t; buildSettings(); };
+    $('settings-tabs').appendChild(b);
+  }
+  const body = $('settings-body');
+  body.innerHTML = '';
+  for (const f of SCHEMA.filter((s) => s.tab === settingsTab)) {
+    const row = document.createElement('label');
+    row.className = 'set-row';
+    const lab = document.createElement('span'); lab.className = 'lab';
+    lab.textContent = f.label;
+    if (f.note) { const n = document.createElement('small'); n.textContent = f.note; lab.appendChild(n); }
+    row.appendChild(lab);
+    let el;
+    if (f.type === 'range') {
+      el = document.createElement('input'); el.type = 'range'; el.min = f.min; el.max = f.max; el.step = f.step; el.value = settings[f.key];
+      const v = document.createElement('b'); v.textContent = f.fmt ? f.fmt(+settings[f.key]) : settings[f.key];
+      el.oninput = () => { settings[f.key] = +el.value; v.textContent = f.fmt ? f.fmt(+el.value) : el.value; changed(f); };
+      row.appendChild(el); row.appendChild(v);
+    } else if (f.type === 'check') {
+      el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!settings[f.key];
+      el.onchange = () => { settings[f.key] = el.checked; changed(f); };
+      row.appendChild(el);
+    } else {
+      el = document.createElement('select');
+      for (const [val, text] of f.options) { const o = document.createElement('option'); o.value = val; o.textContent = text; el.appendChild(o); }
+      el.value = settings[f.key];
+      el.onchange = () => { const o = f.options.find(([v]) => String(v) === el.value); settings[f.key] = o ? o[0] : el.value; changed(f); };
+      row.appendChild(el);
+    }
+    body.appendChild(row);
+  }
+}
+function changed(f) {
+  if (f.key === 'quality') { Object.assign(settings, CONFIG.GRAPHICS.PRESETS[settings.quality]); buildSettings(); }
+  if (f.key === 'camDist' && game) game.camDist = settings.camDist;
+  applyAll(); saveSettings();
+}
+$('btn-settings-reset').onclick = () => {
+  const keep = { name: settings.name, look: settings.look };
+  Object.assign(settings, DEFAULTS, keep);
+  buildSettings(); applyAll(); saveSettings();
+};
+function openSettings() {
+  buildSettings();
+  if (game) { ui.openOverlay(true); input.setActive(false); }
+  else ui.show('settings');
+}
+$('btn-settings').onclick = openSettings;
+$('gearbtn').addEventListener('click', (e) => { e.preventDefault(); openSettings(); });
+$('btn-settings-back').onclick = () => {
+  if (game) {
+    ui.openOverlay(false); input.setActive(true);
+    if (!ui.isTouch) canvas.requestPointerLock?.();
+  } else ui.show('menu');
+};
+// desktop: losing mouse lock (Esc) opens the settings/pause panel
+document.addEventListener('pointerlockchange', () => {
+  if (!document.pointerLockElement && game && !ui.overlayOpen && !ui.isTouch && input.active) openSettings();
+});
+
+// ---------------- character editor ----------------
+const L = CONFIG.LOOKS;
+const ED = [
+  { key: 'hair', label: 'Hairstyle', list: L.HAIR },
+  { key: 'hairColor', label: 'Hair / hat color', colors: L.HAIR_COLORS },
+  { key: 'face', label: 'Face', list: FACES },
+  { key: 'skin', label: 'Skin tone', colors: L.SKINS },
+  { key: 'shirt', label: 'Shirt', list: L.SHIRTS },
+  { key: 'shirtColor', label: 'Shirt color (menu preview)', colors: L.SHIRT_COLORS },
+  { key: 'pants', label: 'Pants', list: L.PANTS },
+  { key: 'pantsColor', label: 'Pants color', colors: L.PANTS_COLORS },
+];
+const NICE = { tshirt: 'T-shirt', longsleeve: 'Long sleeve', buttonup: 'Button-up', sidepart: 'Side part' };
+function buildEditor() {
+  const body = $('editor-body');
+  body.innerHTML = '';
+  for (const e of ED) {
+    if (e.list) {
+      const row = document.createElement('div'); row.className = 'ed-row';
+      const i = e.list.indexOf(settings.look[e.key]);
+      row.innerHTML = `<span style="width:96px">${e.label}</span>`;
+      const prev = document.createElement('button'); prev.className = 'btn ed-arrow'; prev.textContent = '◀';
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = NICE[settings.look[e.key]] || settings.look[e.key];
+      const next = document.createElement('button'); next.className = 'btn ed-arrow'; next.textContent = '▶';
+      prev.onclick = () => { settings.look[e.key] = e.list[(i - 1 + e.list.length) % e.list.length]; lookChanged(); };
+      next.onclick = () => { settings.look[e.key] = e.list[(i + 1) % e.list.length]; lookChanged(); };
+      row.append(prev, val, next);
+      body.appendChild(row);
+    } else {
+      const lab = document.createElement('div'); lab.className = 'ed-label'; lab.textContent = e.label;
+      const sw = document.createElement('div'); sw.className = 'swatches';
+      for (const c of e.colors) {
+        const d = document.createElement('div');
+        d.className = 'sw' + (settings.look[e.key] === c ? ' on' : '');
+        d.style.background = '#' + c.toString(16).padStart(6, '0');
+        d.onclick = () => { settings.look[e.key] = c; lookChanged(); };
+        sw.appendChild(d);
+      }
+      body.append(lab, sw);
+    }
+  }
+}
+function lookChanged() { saveSettings(); buildEditor(); makePreview(); }
+function makePreview() {
+  if (preview) { preview.model.removeFrom(scene); preview.model.dispose(); }
+  const model = new CharacterModel(textures, settings.look);
+  model.setColor(settings.look.shirtColor);
+  model.addTo(scene);
+  const l = map.probe(PREVIEW.x, PREVIEW.z, true);
+  model.setLight(l[0] * 1.1, l[1] * 1.1, l[2] * 1.1);
+  preview = { model, yaw: preview ? preview.yaw : 0.4, t: 0 };
+  model.setVisible(ui.current === 'editor');
+}
+const PREVIEW = { x: 58.4, z: 49 };
+let dragX = null;
+canvas.addEventListener('pointerdown', (e) => { if (ui.current === 'editor') dragX = e.clientX; });
+window.addEventListener('pointermove', (e) => { if (dragX !== null && preview) { preview.yaw += (e.clientX - dragX) * 0.012; dragX = e.clientX; } });
+window.addEventListener('pointerup', () => { dragX = null; });
+$('btn-editor').onclick = () => { buildEditor(); ui.show('editor'); ui.current = 'editor'; makePreview(); };
+$('btn-editor-done').onclick = () => { ui.show('menu'); ui.current = 'menu'; if (preview) preview.model.setVisible(false); };
+$('btn-editor-random').onclick = () => { settings.look = randomLook(); lookChanged(); };
+const nameInput = $('name-input');
+nameInput.value = settings.name;
+const onName = () => {
+  settings.name = nameInput.value.trim().slice(0, 20) || DEFAULTS.name;
+  $('card-name').textContent = settings.name;
+  saveSettings();
+};
+nameInput.addEventListener('change', onName);
+nameInput.addEventListener('input', () => { $('card-name').textContent = nameInput.value.trim().slice(0, 20) || settings.name; });
+$('card-name').textContent = settings.name;
+const myName = () => (settings.name || DEFAULTS.name);
+
+// ---------------- menus ----------------
+$('version').textContent = `v${CONFIG.VERSION}${LOCAL_MODE ? ' · LOCAL TEST NETWORK' : ''}`;
 let rotateDismissed = false;
 function checkRotate() {
   const portrait = window.innerHeight > window.innerWidth;
   $('rotate').classList.toggle('hidden', !(game && ui.isTouch && portrait && !rotateDismissed));
 }
 $('rotate-ok').onclick = () => { rotateDismissed = true; checkRotate(); };
-
-// ---------------- menu wiring ----------------
-const nameInput = $('name-input');
-nameInput.value = settings.name;
-nameInput.addEventListener('change', () => {
-  settings.name = nameInput.value.trim().slice(0, 20) || DEFAULTS.name;
-  nameInput.value = settings.name;
-  saveSettings();
-});
-const myName = () => (nameInput.value.trim().slice(0, 20) || settings.name);
 
 document.addEventListener('pointerdown', () => Audio.unlock(), { capture: true });
 document.addEventListener('touchstart', () => Audio.unlock(), { capture: true, passive: true });
@@ -114,7 +305,6 @@ $('btn-quick').onclick = () => quickPlay();
 $('btn-browser').onclick = () => { ui.show('browser'); refreshBrowser(); };
 $('btn-private').onclick = () => ui.show('private');
 $('btn-offline').onclick = () => startGame('offline', null, { serverLabel: 'Offline' });
-$('btn-settings').onclick = () => { fillSettings(); ui.show('settings'); };
 $('btn-help').onclick = () => ui.show('help');
 $('btn-help-back').onclick = () => ui.show('menu');
 $('btn-browser-back').onclick = () => ui.show('menu');
@@ -125,34 +315,10 @@ $('btn-join-private').onclick = () => joinPrivate($('code-input').value);
 $('code-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinPrivate($('code-input').value); });
 $('btn-return').onclick = () => ui.show('menu');
 
-// settings screen
-const S_FIELDS = [
-  ['s-touch', 'touchSens', 'v-touch', (v) => v.toFixed(1)],
-  ['s-mouse', 'mouseSens', 'v-mouse', (v) => v.toFixed(1)],
-  ['s-fov', 'fov', 'v-fov', (v) => `${v}°`],
-  ['s-vol', 'volume', 'v-vol', (v) => `${Math.round(v * 100)}%`],
-];
-function fillSettings() {
-  for (const [id, key, lab, fmt] of S_FIELDS) { $(id).value = settings[key]; $(lab).textContent = fmt(+settings[key]); }
-  $('s-quality').value = settings.quality;
-  $('s-invert').checked = settings.invert;
-  $('s-fps').checked = settings.fps;
-}
-for (const [id, key, lab, fmt] of S_FIELDS) {
-  $(id).addEventListener('input', () => {
-    settings[key] = +$(id).value; $(lab).textContent = fmt(settings[key]);
-    applyInputSettings(); applyGraphics(); saveSettings();
-  });
-}
-$('s-quality').onchange = () => { settings.quality = $('s-quality').value; applyGraphics(); saveSettings(); };
-$('s-invert').onchange = () => { settings.invert = $('s-invert').checked; applyInputSettings(); saveSettings(); };
-$('s-fps').onchange = () => { settings.fps = $('s-fps').checked; applyInputSettings(); saveSettings(); };
-$('btn-settings-back').onclick = () => ui.show('menu');
-
 // X button: in game -> die/spectate -> menu. In menu -> leave the game.
 $('xbtn').addEventListener('click', (e) => {
   e.preventDefault();
-  if (game) { input.press('x'); return; }
+  if (game) { if (ui.overlayOpen) { ui.openOverlay(false); input.setActive(true); } input.press('x'); return; }
   leaveWholeGame();
 });
 function leaveWholeGame() {
@@ -190,7 +356,7 @@ async function joinServer(hostId) {
     const t = setTimeout(() => done(reject, { type: 'timeout', message: 'The server did not answer' }), 8000);
     net.on('message', onMsg);
     net.on('close', onClose);
-    net.send({ t: 'hello', name: myName() });
+    net.send({ t: 'hello', name: myName(), ap: settings.look });
   }).catch((e) => { net.close(); throw e; });
   startGame('client', net, { welcome, serverLabel: welcome.server });
 }
@@ -318,24 +484,25 @@ function netErrorText(e) {
 }
 
 // ---------------- the match ----------------
-
 function startGame(mode, net, opts) {
   ui.notice('');
   Audio.unlock();
+  if (preview) preview.model.setVisible(false);
   game = new Game({
-    mode, net, scene, camera, map, nav, textures, ui,
-    myName: myName(),
+    mode, net, scene, camera, map, nav, textures, ui, settings,
+    myName: myName(), myLook: settings.look,
     serverLabel: opts.serverLabel, code: opts.code, welcome: opts.welcome,
     onExit: (reason) => {
       game = null;
       input.setActive(false);
-      ui.show('menu');
+      ui.openOverlay(false);
+      ui.show('menu'); ui.current = 'menu';
       if (reason) ui.notice(reason);
       checkRotate();
     },
   });
   ui.game = game;
-  ui.show('game');
+  ui.show('game'); ui.current = 'game';
   input.setActive(true);
   if (ui.isTouch) {
     // go fullscreen + landscape on phones (ignored where unsupported)
@@ -345,12 +512,13 @@ function startGame(mode, net, opts) {
       const p = fs?.call(el, { navigationUI: 'hide' });
       p?.then?.(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
     } catch { /* */ }
-    $('touch-hint').style.display = '';
+    $('touch-hint').style.display = settings.hints ? '' : 'none';
     setTimeout(() => { $('touch-hint').style.display = 'none'; }, 8000);
   }
   checkRotate();
   if (mode === 'host' && opts.code) ui.toast(`Private server code: <b>${opts.code}</b> — share it with friends!`, '#fd6', 10);
   if (mode === 'host' && !opts.code) ui.toast('You are hosting this public server. Keep this tab open!', '#9ad', 7);
+  if (settings.hints && !ui.isTouch) ui.toast('Click to look around · Esc for settings · Mouse wheel / V to zoom out', '#ccc', 6);
 }
 
 // If the host hides the tab, keep the server ticking (browsers pause requestAnimationFrame)
@@ -364,29 +532,42 @@ let menuT = 0;
 let fpsAcc = 0, fpsN = 0;
 
 function step(dt, background = false) {
-  if (game) {
-    const inp = background ? emptyInput() : input.read();
-    game.update(dt, inp);
-  }
+  if (!game) return;
+  const inp = background ? emptyInput() : input.read();
+  if (inp.menu && !ui.overlayOpen) openSettings();
+  game.update(dt, inp);
 }
-const emptyInput = () => ({ fwd: 0, strafe: 0, run: false, jump: false, attack: false, attackHeld: false, equip: false, throw: false, next: false, x: false, score: false, scoreUp: false, lookDX: 0, lookDY: 0 });
+const emptyInput = () => ({ fwd: 0, strafe: 0, run: false, jump: false, attack: false, attackHeld: false, equip: false, throw: false, next: false, x: false, score: false, scoreUp: false, lookDX: 0, lookDY: 0, zoom: 0, toggleView: false, menu: false });
 
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = clamp((now - last) / 1000, 0, 0.05);
   last = now;
+  if (!map) return;
   if (game) {
     step(dt);
+  } else if (ui.current === 'editor' && preview) {
+    // character editor: look at the preview model
+    preview.t += dt;
+    if (dragX === null) preview.yaw += dt * 0.35;
+    preview.model.setVisible(true);
+    preview.model.update(dt, { x: PREVIEW.x, y: 0, z: PREVIEW.z, yaw: preview.yaw, pitch: Math.sin(preview.t * 0.7) * 0.08, speed: 0, onGround: true, weapon: 0 }, 0);
+    const wide = window.innerWidth / window.innerHeight;
+    camera.rotation.order = 'YXZ';
+    camera.position.set(PREVIEW.x - 0.1, 1.3, PREVIEW.z + 2.3 + (wide < 1.4 ? 0.7 : 0));
+    camera.lookAt(PREVIEW.x - 0.62 * Math.min(1.2, wide / 1.6), 1.05, PREVIEW.z);
+    input.read();
   } else {
-    // menu background: slow fly-through of the map
+    // menu background: slow walk through the courtyard
     menuT += dt;
     const c = map.center();
     const a = menuT * 0.05;
     camera.rotation.order = 'YXZ';
-    camera.position.set(c.x + Math.cos(a) * 9, 3.2, c.z + Math.sin(a) * 9);
-    camera.lookAt(c.x + Math.cos(a + 1.3) * 7, 2.6, c.z + Math.sin(a + 1.3) * 7);
+    camera.position.set(c.x + Math.cos(a) * 9, 2.6, c.z + Math.sin(a) * 9);
+    camera.lookAt(c.x + Math.cos(a + 1.3) * 7, 2.2, c.z + Math.sin(a + 1.3) * 7);
     input.read();
   }
+  updateDynLights(dt);
   renderer.render(scene, camera);
   if (settings.fps) {
     fpsAcc += dt; fpsN++;
@@ -394,9 +575,40 @@ function frame(now) {
   }
 }
 
-ui.show('menu');
-resize();
-requestAnimationFrame(frame);
+// ---------------- startup: build textures, bake the lighting ----------------
+async function init() {
+  ui.loading('Painting textures…');
+  $('loading-cancel').style.display = 'none';
+  resize();
+  await tick();
+  textures = makeTextures(renderer, settings.quality);
+  ui.loading('Building the map…'); await tick();
+  map = new GameMap();
+  const t0 = performance.now();
+  const level = map.build(textures, () => {});
+  scene.add(level);
+  ui.loading('Lighting the map…'); await tick();
+  map.buildProbes();
+  nav = new NavGrid(map);
+  console.log(`map built + baked in ${Math.round(performance.now() - t0)} ms`);
+  // sky dome
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(320, 24, 12), new THREE.MeshBasicMaterial({ map: textures.sky, side: THREE.BackSide, fog: false, toneMapped: false }));
+  sky.position.set(map.worldW / 2, -20, map.worldD / 2);
+  scene.add(sky);
+  // soft glow around every ceiling light (one draw call)
+  {
+    const pos = new Float32Array(map.lights.length * 3);
+    map.lights.forEach((L, i) => pos.set([L.x, L.y - 0.12, L.z], i * 3));
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    glow = new THREE.Points(g, new THREE.PointsMaterial({ map: textures.glow, size: 2.6, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffe9c8 }));
+    scene.add(glow);
+  }
+  $('loading-cancel').style.display = '';
+  applyAll();
+  ui.show('menu'); ui.current = 'menu';
+  requestAnimationFrame(frame);
+}
+init();
 
 // warn hosts before closing the tab
 window.addEventListener('beforeunload', (e) => {
@@ -404,4 +616,4 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // debug handle (open the browser console and type GMM)
-window.GMM = { get game() { return game; }, map, nav, CONFIG, startGame };
+window.GMM = { get game() { return game; }, get map() { return map; }, get nav() { return nav; }, CONFIG, startGame, settings, applyAll };

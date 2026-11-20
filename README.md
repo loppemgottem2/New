@@ -6,9 +6,13 @@ survive, collect **gun parts**, and figure out who the killer is.
 
 - 📱 Works on phones (touch joystick + drag to look) and computers (WASD + mouse)
 - 🌐 Real online multiplayer: **public servers** (Quick Play / Server Browser) and **private servers** with a 5-letter code
-- 🤖 Bots fill empty slots: A* pathfinding, line-of-sight vision, suspicion, fleeing, aiming with reaction time
-- 🧍 Humanoid characters, Verlet **ragdolls** with limb constraints on death
-- 🔪 Murderer (stab + throw knife), 🔫 sheriff, 🧩 5 gun parts per player → build a revolver (one at a time)
+- 🤖 Bots fill empty slots: A* pathfinding, line-of-sight vision, suspicion, fleeing, jumping, aiming with reaction time
+- 🏢 Big 120 m map: office, cafeteria, storage, lobby, gym, library, workshop, courtyard and parking lot
+- 💡 Pre-computed ("baked") lighting from every ceiling light + sun shadows + ambient occlusion + grime, and optional real-time lights
+- 🪑 Movable physics furniture (chairs, tables, boxes, crates, barrels) — push it, shoot it, stand on it
+- 🧍 Character editor: name, hairstyle, face, skin, shirt and pants types/colors. Ragdolls on death
+- 🔪 Murderer (stab + throw knife), 🔫 Sheriff (shooting an innocent kills the Sheriff too), 🧩 5 gun parts → build a revolver
+- 🎥 First person or third person (zoom in/out), lots of settings, available mid-match from the ⚙ button
 - No build step, no server to pay for — just static files
 
 ---
@@ -62,6 +66,8 @@ then open http://localhost:8000
 | Draw / hide weapon | DRAW / HIDE | Q |
 | Stab / shoot | big red button | Left click |
 | Throw knife (murderer) | THROW | Right click / G |
+| Zoom camera / third person | ＋ / － | Mouse wheel / V |
+| Settings | ⚙ | ⚙ / Esc / P |
 | Scoreboard | ☰ | Tab |
 | Next spectate target | ▶ | F / click |
 | **X button** | ✕ top-right | X key |
@@ -75,19 +81,20 @@ then open http://localhost:8000
 | File | What's in it |
 |---|---|
 | `js/config.js` | **Every tunable number**: speeds, jump, stamina, weapon range/cooldowns, round time, bot count, bot aim/vision/suspicion, network settings |
-| `js/map.js` | **The map as ASCII art** — edit the `LAYOUT` text to redesign the level (`#` wall, `.` floor, `o` outdoor, `P` pillar, `C` crate, `H` half wall, `S` spawn, `G` gun part spot) |
+| `js/map.js` | **The map as ASCII art** — edit the `LAYOUT` text to redesign the level (floors `. , ; _ o a`, `#` wall, `P` pillar, `Q` shelf, `W` counter, furniture `B C K T X`, `S` spawn, `G` gun part spot). Also the baked lighting |
+| `js/props.js` | Movable physics furniture |
 | `js/game.js` | Rounds, roles, combat, gun parts, item pickups, events, camera, network messages |
 | `js/bots.js` | Bot AI: perception, suspicion, flee, sheriff aiming, murderer hunting |
 | `js/nav.js` | A* pathfinding grid + path smoothing |
 | `js/physics.js` | Movement, gravity, jumping, wall collision, raycasts |
-| `js/character.js` | Humanoid model, animations, first-person weapon view |
+| `js/character.js` | Character body, hairstyles, clothing, animations, first-person arms |
 | `js/ragdoll.js` | Ragdoll physics (joints + limb constraints) |
 | `js/textures.js` | Procedurally drawn textures (floor grid, walls, grass, crates…) |
 | `js/input.js` | Touch joystick / look / buttons, keyboard & mouse |
 | `js/ui.js`, `index.html`, `css/style.css` | Menus and HUD |
 | `js/net.js` | Peer-to-peer networking, public slots, private codes |
 | `js/audio.js` | Synthesized sound effects |
-| `js/main.js` | Startup, menus, matchmaking, main loop |
+| `js/main.js` | Startup, settings (the `SCHEMA` list — add options there), character editor, matchmaking, main loop |
 
 Third-party libraries (MIT licensed) are bundled in `vendor/`: three.js r170 and PeerJS 1.5.4.
 

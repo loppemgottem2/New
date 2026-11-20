@@ -1,6 +1,6 @@
 // Synthesized 3D sound effects using the Web Audio API (no sound files needed).
 let ctx = null, master = null, noiseBuf = null;
-let volume = 0.8;
+let volume = 1.0;
 
 export const Audio = {
   // Must be called from a user gesture (tap/click) on mobile
@@ -8,7 +8,11 @@ export const Audio = {
     try {
       if (!ctx) {
         ctx = new (window.AudioContext || window.webkitAudioContext)();
-        master = ctx.createGain(); master.gain.value = volume; master.connect(ctx.destination);
+        master = ctx.createGain(); master.gain.value = volume;
+        // compressor lets everything be louder without crackling
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.2;
+        master.connect(comp); comp.connect(ctx.destination);
         const len = ctx.sampleRate * 1.0;
         noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
         const d = noiseBuf.getChannelData(0);
@@ -37,7 +41,7 @@ export const Audio = {
     const p = ctx.createPanner();
     p.panningModel = 'equalpower';
     p.distanceModel = 'inverse';
-    p.refDistance = ref; p.rolloffFactor = 1.2; p.maxDistance = 200;
+    p.refDistance = ref; p.rolloffFactor = 1.0; p.maxDistance = 200;
     if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; }
     else p.setPosition(pos.x, pos.y, pos.z);
     p.connect(master);
@@ -78,36 +82,62 @@ export const Audio = {
   },
   swing(pos) {
     if (!ctx) return;
-    this._noise(this._out(pos, 2), 0.22, 600, 2, 'bandpass', 0.5, 0, 3000);
+    this._noise(this._out(pos, 3), 0.25, 600, 2, 'bandpass', 0.9, 0, 3200);
   },
   stab(pos) {
     if (!ctx) return;
     const d = this._out(pos, 3);
-    this._noise(d, 0.18, 500, 1, 'lowpass', 1.0);
-    this._tone(d, 90, 0.2, 0.6, 'triangle', 0, 50);
+    this._noise(d, 0.2, 500, 1, 'lowpass', 1.3);
+    this._tone(d, 90, 0.22, 0.9, 'triangle', 0, 50);
   },
   thud(pos) {
     if (!ctx) return;
     const d = this._out(pos, 3);
-    this._tone(d, 70, 0.3, 0.7, 'sine', 0, 35);
-    this._noise(d, 0.2, 300, 1, 'lowpass', 0.5);
+    this._tone(d, 70, 0.35, 1.0, 'sine', 0, 35);
+    this._noise(d, 0.25, 300, 1, 'lowpass', 0.8);
   },
-  step(pos, loud = 0.25) {
+  // footstep; surface = floor type ('tile','wood','carpet','concrete','grass','asphalt')
+  step(pos, loud = 0.6, surface = 'tile', vol = 1) {
     if (!ctx) return;
-    this._noise(this._out(pos, 2), 0.07, 700 + Math.random() * 500, 1.5, 'bandpass', loud);
+    const d = this._out(pos, 4);
+    const g = loud * vol * (pos ? 1.3 : 0.9);
+    switch (surface) {
+      case 'grass': this._noise(d, 0.12, 900 + Math.random() * 300, 0.8, 'lowpass', g * 0.9); break;
+      case 'carpet': this._noise(d, 0.08, 500, 0.7, 'lowpass', g * 0.7); this._tone(d, 70, 0.07, g * 0.4, 'sine'); break;
+      case 'wood': this._tone(d, 110 + Math.random() * 20, 0.09, g * 0.7, 'triangle', 0, 80); this._noise(d, 0.06, 1500, 1.2, 'bandpass', g * 0.6); break;
+      case 'concrete': case 'asphalt': this._noise(d, 0.07, 2200 + Math.random() * 600, 1.4, 'bandpass', g); this._tone(d, 90, 0.05, g * 0.35, 'sine'); break;
+      default: this._noise(d, 0.06, 3000 + Math.random() * 600, 1.6, 'bandpass', g); this._tone(d, 100, 0.05, g * 0.35, 'sine'); break; // tile: clicky
+    }
   },
-  land(pos) {
+  jump(pos) {
     if (!ctx) return;
-    this._noise(this._out(pos, 2), 0.15, 400, 1, 'lowpass', 0.6);
+    const d = this._out(pos, 4);
+    this._noise(d, 0.18, 700, 1.2, 'bandpass', 0.55, 0, 1600); // cloth whoosh
+    this._tone(d, 180, 0.12, 0.25, 'sine', 0, 140);              // little breath
+  },
+  land(pos, impact = 8) {
+    if (!ctx) return;
+    const d = this._out(pos, 4);
+    const k = Math.min(1.6, impact / 7);
+    this._tone(d, 75, 0.22, 0.9 * k, 'sine', 0, 38);
+    this._noise(d, 0.16, 450, 1, 'lowpass', 0.9 * k);
+  },
+  prop(pos, kind = 'wood', v = 0.5) {
+    if (!ctx) return;
+    const d = this._out(pos, 4);
+    const g = 0.3 + v * 0.9;
+    if (kind === 'metal') { this._tone(d, 220 + Math.random() * 60, 0.5, g * 0.5, 'triangle', 0, 180); this._tone(d, 523, 0.35, g * 0.25, 'sine'); this._noise(d, 0.1, 2500, 2, 'bandpass', g * 0.6); }
+    else if (kind === 'cardboard') { this._noise(d, 0.12, 600, 1, 'lowpass', g); this._tone(d, 120, 0.08, g * 0.4, 'sine'); }
+    else { this._tone(d, 150 + Math.random() * 40, 0.14, g * 0.8, 'triangle', 0, 90); this._noise(d, 0.08, 1200, 1.4, 'bandpass', g * 0.7); }
   },
   clink(pos) {
     if (!ctx) return;
     const d = this._out(pos, 3);
-    this._tone(d, 2400, 0.15, 0.25, 'triangle'); this._tone(d, 3600, 0.1, 0.15, 'triangle', 0.03);
+    this._tone(d, 2400, 0.2, 0.5, 'triangle'); this._tone(d, 3600, 0.14, 0.3, 'triangle', 0.03);
   },
   pickup() {
     if (!ctx) return;
-    this._tone(master, 880, 0.1, 0.3, 'square'); this._tone(master, 1320, 0.15, 0.25, 'square', 0.08);
+    this._tone(master, 880, 0.1, 0.45, 'square'); this._tone(master, 1320, 0.15, 0.4, 'square', 0.08);
   },
   gunReady() {
     if (!ctx) return;

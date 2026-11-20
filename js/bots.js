@@ -258,7 +258,7 @@ function thinkInnocent(game, c, b, active) {
   }
 
   // ---- brave: pick up a dropped gun ----
-  if (active && !c.hasGun && !c.gunBanned && c.role !== 'murderer' && b.brave) {
+  if (active && !c.hasGun && c.role !== 'murderer' && b.brave) {
     for (const it of game.items.values()) {
       if (it.type !== 'gun' || it.flying) continue;
       const d = Math.hypot(it.x - c.x, it.z - c.z);
@@ -272,7 +272,7 @@ function thinkInnocent(game, c, b, active) {
   if (b.state === 'getgun') b.state = 'wander';
 
   // ---- collect gun parts ----
-  if (active && b.collector && game.craftedBy == null && !c.hasGun && !c.gunBanned && c.role !== 'murderer') {
+  if (active && b.collector && game.craftedBy == null && !c.hasGun && c.role !== 'murderer') {
     const set = game.partsCollected.get(c.id);
     let best = -1, bd = B.COLLECT_PARTS_RANGE;
     game.partSpots.forEach((s, k) => {
@@ -489,6 +489,18 @@ function act(game, c, b, dt) {
       const ahead = -(dx * mx + dz * mz) / d;
       if (ahead > 0.6 && d < 1.8) { ax += -mz * 0.6 * k; az += mx * 0.6 * k; }
     }
+    // furniture: steer around tall props, hop over / onto low ones
+    for (const p of game.props.list) {
+      const dx = c.x - p.x, dz = c.z - p.z;
+      const d = Math.hypot(dx, dz), R = p.r + P.RADIUS + 0.5;
+      if (d > R || d < 1e-3) continue;
+      if (c.y >= p.y + p.h - 0.2) continue; // already on top
+      const ahead = -(dx * mx + dz * mz) / d;
+      if (p.y + p.h - c.y <= 1.0 && ahead > 0.7 && d < p.r + 0.75 && c.onGround && Math.random() < 0.5) { b.jump = true; continue; }
+      const k = (R - d) / R;
+      ax += (dx / d) * k * 1.2; az += (dz / d) * k * 1.2;
+      if (ahead > 0.5) { ax += -mz * 0.7 * k; az += mx * 0.7 * k; }
+    }
     mx += ax; mz += az;
     const l = Math.hypot(mx, mz);
     if (l > 1e-3) { mx /= l; mz /= l; }
@@ -507,6 +519,13 @@ function act(game, c, b, dt) {
     }
   }
 
+  // jump up to people standing on boxes / tables, and hop around when running scared
+  if (target && target.alive && (b.state === 'attack' || b.state === 'engage')) {
+    const dd = Math.hypot(target.x - c.x, target.z - c.z);
+    if (target.y - c.y > 0.3 && dd < 2.6 && c.onGround) b.jump = true;
+  }
+  if (c.onGround && b.run && (b.state === 'flee' || b.state === 'evade' || b.state === 'escape') && Math.random() < B.JUMPINESS * dt) b.jump = true;
+  if (c.onGround && b.state === 'wander' && b.path && Math.random() < 0.04 * dt) b.jump = true;
   moveCharacter(c, { mx, mz, run: b.run, jump: b.jump }, dt, game.map);
   b.jump = false;
 

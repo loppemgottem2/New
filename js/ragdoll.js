@@ -50,27 +50,17 @@ export class Ragdoll {
     this.sleepT = 0;
     this.asleep = false;
 
-    // Meshes (reuse the character's materials so colors match)
-    const M = model.mats;
-    const G = model.torso.children[0].geometry; // torso
+    // Visuals: clone the character's own body segments (same clothes, hair, face).
+    // Clones share geometry + materials, so they're cheap.
     this.group = new THREE.Group();
-    const mk = (geo, mat) => { const m = new THREE.Mesh(geo, mat); this.group.add(m); return m; };
-    const find = (obj) => obj.children.find((c) => c.isMesh);
+    const cl = (vis) => { const c = vis.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); this.group.add(c); return c; };
     this.m = {
-      torso: mk(G, M.shirt),
-      pelvis: mk(find(model.pelvis).geometry, M.pants),
-      head: mk(model.headMesh.geometry, M.face),
-      hair: mk(model.head.children[1].geometry, M.hair),
-      upL: mk(find(model.armL.sh).geometry, M.shirt), foL: mk(find(model.armL.el).geometry, M.skin),
-      upR: mk(find(model.armR.sh).geometry, M.shirt), foR: mk(find(model.armR.el).geometry, M.skin),
-      haL: mk(find(model.armL.hand).geometry, M.skin), haR: mk(find(model.armR.hand).geometry, M.skin),
-      thL: mk(find(model.legL.hip).geometry, M.pants), shL: mk(find(model.legL.kn).geometry, M.pants),
-      thR: mk(find(model.legR.hip).geometry, M.pants), shR: mk(find(model.legR.kn).geometry, M.pants),
-      ftL: mk(find(model.legL.foot).geometry, M.shoes), ftR: mk(find(model.legR.foot).geometry, M.shoes),
+      pelvis: cl(model.pelvis.vis), torso: cl(model.torso.vis), head: cl(model.head.vis),
+      upL: cl(model.armL.shVis), foL: cl(model.armL.elVis), upR: cl(model.armR.shVis), foR: cl(model.armR.elVis),
+      thL: cl(model.legL.hipVis), shL: cl(model.legL.knVis), thR: cl(model.legR.hipVis), shR: cl(model.legR.knVis),
     };
-    this.m.head.scale.set(1, 1.12, 1.05);
-    this.m.hair.scale.set(1.02, 1, 1.06);
     scene.add(this.group);
+    this.right = new THREE.Vector3(1, 0, 0);
     this._render();
   }
 
@@ -156,6 +146,17 @@ export class Ragdoll {
         q.x += (ddx / d) * push; q.z += (ddz / d) * push;
       }
     }
+    // physics props (boxes, tables...): land on top or get pushed out sideways
+    for (const pr of map.props) {
+      const dx = q.x - pr.x, dz = q.z - pr.z, R = pr.r + q.r * 0.5;
+      if (Math.abs(dx) > R || Math.abs(dz) > R) continue;
+      const top = pr.y + pr.h;
+      if (q.y - q.r > top || q.y + q.r < pr.y) continue;
+      const d = Math.hypot(dx, dz);
+      if (d >= R) continue;
+      if (q.py - q.r >= top - 0.06) { if (top > support) support = top; }
+      else if (d > 1e-4) { q.x = pr.x + (dx / d) * R; q.z = pr.z + (dz / d) * R; }
+    }
     const floor = support + q.r;
     if (q.y < floor) {
       q.y = floor;
@@ -166,48 +167,44 @@ export class Ragdoll {
     }
   }
 
-  _seg(mesh, a, b) {
+  // place a limb segment: its origin at joint a, its local -Y pointing at joint b
+  _seg(obj, a, b) {
     const pa = this.p[a], pb = this.p[b];
-    tmpA.set(pa.x, pa.y, pa.z); tmpB.set(pb.x, pb.y, pb.z);
-    mesh.position.copy(tmpA).add(tmpB).multiplyScalar(0.5);
-    tmpC.copy(tmpA).sub(tmpB).normalize(); // from child to parent = +Y of the limb
-    mesh.quaternion.setFromUnitVectors(Y, tmpC);
+    const yAxis = tmpA.set(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z).normalize(); // local +Y (points back up the limb)
+    const xAxis = tmpB.copy(this.right).addScaledVector(yAxis, -this.right.dot(yAxis));
+    if (xAxis.lengthSq() < 1e-6) xAxis.set(1, 0, 0);
+    xAxis.normalize();
+    const zAxis = tmpC.crossVectors(xAxis, yAxis);
+    mtx.makeBasis(xAxis, yAxis, zAxis);
+    obj.quaternion.setFromRotationMatrix(mtx);
+    obj.position.set(pa.x, pa.y, pa.z);
   }
 
   _render() {
     const p = this.p, m = this.m;
-    // torso frame
     const up = new THREE.Vector3(p[NECK].x - p[PELVIS].x, p[NECK].y - p[PELVIS].y, p[NECK].z - p[PELVIS].z).normalize();
     const right = new THREE.Vector3(
       (p[SHR].x + p[HIPR].x) - (p[SHL].x + p[HIPL].x),
       (p[SHR].y + p[HIPR].y) - (p[SHL].y + p[HIPL].y),
       (p[SHR].z + p[HIPR].z) - (p[SHL].z + p[HIPL].z)).normalize();
     right.addScaledVector(up, -right.dot(up)).normalize();
+    this.right.copy(right);
     const back = new THREE.Vector3().crossVectors(right, up);
     mtx.makeBasis(right, up, back);
-    const q = new THREE.Quaternion().setFromRotationMatrix(mtx);
     const P = p[PELVIS], N = p[NECK], H = p[HEAD];
-    m.torso.position.set(P.x + (N.x - P.x) * 0.52, P.y + (N.y - P.y) * 0.52, P.z + (N.z - P.z) * 0.52);
-    m.torso.quaternion.copy(q);
-    m.pelvis.position.set(P.x, P.y, P.z); m.pelvis.quaternion.copy(q);
-    // head: orient using neck->head as up
+    m.pelvis.position.set(P.x, P.y, P.z); m.pelvis.quaternion.setFromRotationMatrix(mtx);
+    m.torso.position.copy(m.pelvis.position); m.torso.quaternion.copy(m.pelvis.quaternion);
+    // head: up = neck -> head center
     const hup = new THREE.Vector3(H.x - N.x, H.y - N.y, H.z - N.z).normalize();
     const hr = right.clone().addScaledVector(hup, -right.dot(hup)).normalize();
     const hb = new THREE.Vector3().crossVectors(hr, hup);
     mtx.makeBasis(hr, hup, hb);
     m.head.quaternion.setFromRotationMatrix(mtx);
-    m.head.position.set(H.x, H.y - 0.01, H.z);
-    m.hair.quaternion.copy(m.head.quaternion);
-    m.hair.position.copy(m.head.position).addScaledVector(hup, 0.02);
-
+    m.head.position.set(N.x, N.y, N.z);
     this._seg(m.upL, SHL, ELL); this._seg(m.foL, ELL, HAL);
     this._seg(m.upR, SHR, ELR); this._seg(m.foR, ELR, HAR);
     this._seg(m.thL, HIPL, KNL); this._seg(m.shL, KNL, FTL);
     this._seg(m.thR, HIPR, KNR); this._seg(m.shR, KNR, FTR);
-    m.haL.position.set(p[HAL].x, p[HAL].y, p[HAL].z);
-    m.haR.position.set(p[HAR].x, p[HAR].y, p[HAR].z);
-    m.ftL.position.set(p[FTL].x, p[FTL].y, p[FTL].z); m.ftL.quaternion.copy(m.shL.quaternion);
-    m.ftR.position.set(p[FTR].x, p[FTR].y, p[FTR].z); m.ftR.quaternion.copy(m.shR.quaternion);
   }
 
   dispose() {

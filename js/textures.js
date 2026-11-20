@@ -1,178 +1,545 @@
-// Procedural "developer style" textures drawn on canvases at startup.
-// No image files needed. Each texture tiles once per `size` meters (see map.js).
+// =====================================================================
+//  TEXTURES.JS — every texture is painted procedurally on a canvas at
+//  startup (no image files). Uses fractal noise for concrete, dirt,
+//  wood grain, fabric etc.
+// =====================================================================
 import * as THREE from '../vendor/three.module.min.js';
 
-function canvas(size = 256) {
+// ---------------- noise helpers ----------------
+function hash(x, y, s) {
+  let h = (x * 374761393 + y * 668265263 + s * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+// tileable value noise (period p)
+function vnoise(x, y, p, s = 0) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const m = (a) => ((a % p) + p) % p;
+  const a = hash(m(xi), m(yi), s), b = hash(m(xi + 1), m(yi), s);
+  const c = hash(m(xi), m(yi + 1), s), d = hash(m(xi + 1), m(yi + 1), s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+// fractal noise in [0,1], tileable over [0,1)^2 with base frequency f
+export function fbm(x, y, f = 4, oct = 4, s = 0) {
+  let sum = 0, amp = 0.5, norm = 0;
+  for (let o = 0; o < oct; o++) {
+    const p = f << o;
+    sum += vnoise(x * p, y * p, p, s + o * 17) * amp;
+    norm += amp; amp *= 0.5;
+  }
+  return sum / norm;
+}
+
+function canvas(w, h = w) {
   const c = document.createElement('canvas');
-  c.width = c.height = size;
+  c.width = w; c.height = h;
   return [c, c.getContext('2d')];
 }
 
-function noise(ctx, size, amount, alpha = 0.08) {
-  const img = ctx.getImageData(0, 0, size, size);
+// Fill a canvas pixel by pixel: fn(u, v) -> [r,g,b]
+function paint(ctx, w, h, fn) {
+  const img = ctx.createImageData(w, h);
   const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * amount;
-    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const [r, g, b] = fn(x / w, y / h, x, y);
+    const i = (y * w + x) * 4;
+    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  ctx.globalAlpha = alpha;
-  ctx.globalAlpha = 1;
 }
 
-function toTex(c, renderer) {
+let RENDERER = null;
+function tex(c, repeat = true) {
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1;
-  t.generateMipmaps = true;
-  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = RENDERER ? Math.min(8, RENDERER.capabilities.getMaxAnisotropy()) : 1;
   return t;
 }
 
-// Grid-style measure texture (classic "dev map" look)
-function devGrid(base, line, sub, label) {
-  const S = 256;
+const rnd = (() => { let s = 12345; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; })();
+
+// ======================================================================
+//  Surfaces
+// ======================================================================
+
+// Painted concrete-block wall (2m x 2m tile)
+function wallPainted(S) {
   const [c, ctx] = canvas(S);
-  ctx.fillStyle = base; ctx.fillRect(0, 0, S, S);
-  noise(ctx, S, 14);
-  // sub grid (every 1/4)
-  ctx.strokeStyle = sub; ctx.lineWidth = 2;
-  for (let i = 1; i < 4; i++) {
-    const p = (i * S) / 4;
-    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, S); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(S, p); ctx.stroke();
-  }
-  // main border
-  ctx.strokeStyle = line; ctx.lineWidth = 6;
-  ctx.strokeRect(3, 3, S - 6, S - 6);
-  if (label) {
-    ctx.fillStyle = line; ctx.font = 'bold 22px monospace';
-    ctx.fillText(label, 12, 32);
+  const bw = S / 5, bh = S / 10; // 0.4 x 0.2 m blocks
+  paint(ctx, S, S, (u, v, x, y) => {
+    const row = Math.floor(y / bh);
+    const off = (row % 2) * bw / 2;
+    const bx = (x + off) % bw, by = y % bh;
+    const n = fbm(u, v, 8, 4, 1);
+    const grime = fbm(u, v, 2, 3, 7);
+    let base = 206 + (n - 0.5) * 22 - Math.max(0, grime - 0.62) * 70;
+    // mortar joints: recessed (dark) with a lit lower lip -> looks 3D
+    const edge = Math.min(bx, bw - bx, by, bh - by);
+    if (edge < 2.2) base -= 38;
+    else if (by > bh - 4.5) base -= 10;     // shadow under top joint
+    else if (by < 4.5) base += 7;            // highlight below joint
+    // tiny pits
+    if (hash(x, y, 3) > 0.996) base -= 40;
+    return [base * 1.0, base * 0.985, base * 0.95];
+  });
+  return c;
+}
+
+// Raw poured concrete with form-tie holes and water stains
+function wallConcrete(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 6, 5, 11);
+    const blot = fbm(u, v, 3, 3, 12);
+    const streak = fbm(u * 6, v * 0.6, 4, 3, 13);
+    let b = 150 + (n - 0.5) * 60 - Math.max(0, blot - 0.55) * 80 - Math.max(0, streak - 0.6) * 60 * v;
+    // panel seams every 1m
+    const px = x % (S / 2), py = y % (S / 2);
+    if (px < 2 || py < 2) b -= 35;
+    // form tie holes
+    const hx = (x % (S / 4)) - S / 8, hy = (y % (S / 4)) - S / 8;
+    const hr = Math.hypot(hx, hy);
+    if (hr < 5) b -= 55 - hr * 6; else if (hr < 7) b += 8;
+    return [b, b * 0.99, b * 0.96];
+  });
+  return c;
+}
+
+function floorTile(S) {
+  const [c, ctx] = canvas(S);
+  const ts = S / 4; // 0.5m tiles
+  paint(ctx, S, S, (u, v, x, y) => {
+    const tx = Math.floor(x / ts), ty = Math.floor(y / ts);
+    const alt = (tx + ty) % 2;
+    const n = fbm(u, v, 16, 3, 21);
+    const scuff = fbm(u, v, 3, 4, 22);
+    let r = alt ? 196 : 168, g = alt ? 192 : 168, b = alt ? 180 : 162;
+    const k = (n - 0.5) * 26 - Math.max(0, scuff - 0.6) * 60;
+    if (hash(x, y, 23) > 0.985) { r -= 30; g -= 30; b -= 30; } // speckles
+    const lx = x % ts, ly = y % ts;
+    if (lx < 1.5 || ly < 1.5) return [92, 90, 86];
+    if (lx < 3 || ly < 3) { r -= 14; g -= 14; b -= 14; }
+    return [r + k, g + k, b + k];
+  });
+  return c;
+}
+
+function floorWood(S) {
+  const [c, ctx] = canvas(S);
+  const pw = S / 10; // 0.2m planks
+  paint(ctx, S, S, (u, v, x, y) => {
+    const plank = Math.floor(y / pw);
+    const seg = Math.floor((x + hash(plank, 0, 31) * S) / (S / 2)) ;
+    const tone = hash(plank, seg, 32);
+    const grain = fbm(u * 0.5 + tone, v * 8, 8, 4, 33);
+    const ring = Math.sin((grain * 18 + v * 40) ) * 0.5 + 0.5;
+    let r = 150 + tone * 40 + ring * 18 - grain * 30, g = 98 + tone * 26 + ring * 10 - grain * 22, b = 56 + tone * 14 - grain * 12;
+    const wear = fbm(u, v, 3, 3, 34);
+    r -= Math.max(0, wear - 0.6) * 60; g -= Math.max(0, wear - 0.6) * 50; b -= Math.max(0, wear - 0.6) * 30;
+    if (y % pw < 1.6) { r *= 0.45; g *= 0.45; b *= 0.45; }
+    const sx = (x + hash(plank, 0, 31) * S) % (S / 2);
+    if (sx < 1.4) { r *= 0.55; g *= 0.55; b *= 0.55; }
+    return [r, g, b];
+  });
+  return c;
+}
+
+function floorCarpet(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 32, 2, 41);
+    const pat = (Math.floor(x / (S / 8)) + Math.floor(y / (S / 8))) % 2;
+    const dirt = fbm(u, v, 3, 3, 42);
+    const k = hash(x, y, 43) * 26 + n * 20 - Math.max(0, dirt - 0.58) * 50;
+    return pat ? [70 + k, 78 + k, 104 + k] : [60 + k, 66 + k, 92 + k];
+  });
+  return c;
+}
+
+function floorConcrete(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 6, 5, 51);
+    const stain = fbm(u, v, 2, 4, 52);
+    let b = 140 + (n - 0.5) * 50 - Math.max(0, stain - 0.56) * 110;
+    if (x % (S / 2) < 2 || y % (S / 2) < 2) b -= 40; // expansion joints
+    if (hash(x, y, 53) > 0.99) b += 25;
+    return [b, b * 0.98, b * 0.94];
+  });
+  // a few cracks
+  ctx.strokeStyle = 'rgba(30,30,30,0.55)'; ctx.lineWidth = 1.3;
+  for (let k = 0; k < 4; k++) {
+    let x = rnd() * S, y = rnd() * S, a = rnd() * 6.28;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    for (let i = 0; i < 40; i++) { a += (rnd() - 0.5) * 0.9; x += Math.cos(a) * 4; y += Math.sin(a) * 4; ctx.lineTo(x, y); }
+    ctx.stroke();
   }
   return c;
 }
 
-export function makeTextures(renderer) {
+function grass(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 8, 4, 61);
+    const patch = fbm(u, v, 2, 3, 62);
+    const blade = hash(x, Math.floor(y / 3), 63);
+    let r = 62 + n * 30 + blade * 20, g = 104 + n * 50 + blade * 30, b = 40 + n * 14;
+    if (patch > 0.64) { const k = (patch - 0.64) * 3; r += (120 - r) * k; g += (98 - g) * k; b += (66 - b) * k; } // dirt patches
+    return [r, g, b];
+  });
+  return c;
+}
+
+function asphalt(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 12, 4, 71);
+    const oil = fbm(u, v, 2, 3, 72);
+    let b = 64 + n * 30 + hash(x, y, 73) * 24 - Math.max(0, oil - 0.6) * 60;
+    return [b, b, b * 1.02];
+  });
+  return c;
+}
+
+function ceiling(S) {
+  const [c, ctx] = canvas(S);
+  const ts = S / 3; // ~0.66m tiles
+  paint(ctx, S, S, (u, v, x, y) => {
+    let b = 222 - hash(x, y, 81) * 22 - fbm(u, v, 4, 3, 82) * 20;
+    const lx = x % ts, ly = y % ts;
+    if (lx < 3 || ly < 3) b = 150;
+    return [b, b, b * 0.98];
+  });
+  return c;
+}
+
+function shelf(S) {
+  const [c, ctx] = canvas(S);
+  ctx.fillStyle = '#2b2d30'; ctx.fillRect(0, 0, S, S);
+  const levels = 4;
+  for (let i = 0; i < levels; i++) {
+    const y0 = (i / levels) * S;
+    ctx.fillStyle = '#16171a'; ctx.fillRect(0, y0, S, S / levels);
+    // items on the shelf
+    let x = 4;
+    while (x < S - 10) {
+      const w = 10 + rnd() * 40, h = (S / levels) * (0.4 + rnd() * 0.5);
+      const hue = Math.floor(rnd() * 360);
+      ctx.fillStyle = rnd() < 0.5 ? `hsl(${hue},35%,${35 + rnd() * 25}%)` : `hsl(30,40%,${45 + rnd() * 15}%)`;
+      ctx.fillRect(x, y0 + S / levels - h - 6, w, h);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x + w - 3, y0 + S / levels - h - 6, 3, h);
+      x += w + 2 + rnd() * 6;
+    }
+    ctx.fillStyle = '#6d7076'; ctx.fillRect(0, y0 + S / levels - 6, S, 6);
+  }
+  ctx.fillStyle = '#5a5d63'; ctx.fillRect(0, 0, 6, S); ctx.fillRect(S - 6, 0, 6, S);
+  return c;
+}
+
+function counter(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u * 0.3, v * 4, 8, 3, 91);
+    let r = 120 + n * 50, g = 84 + n * 34, b = 54 + n * 20;
+    if (y % (S / 2) < 3) { r *= 0.5; g *= 0.5; b *= 0.5; }
+    return [r, g, b];
+  });
+  return c;
+}
+
+function pillar(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 6, 4, 101);
+    let b = 168 + (n - 0.5) * 40;
+    if (y > S * 0.92) b -= 50; // dark base band
+    if (y > S * 0.9 && y < S * 0.92) b += 10;
+    return [b, b * 0.98, b * 0.94];
+  });
+  return c;
+}
+
+// ======================================================================
+//  Props
+// ======================================================================
+function cardboard(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 8, 3, 111);
+    const flute = (x % 4 < 1) ? -6 : 0;
+    return [176 + n * 30 + flute, 134 + n * 24 + flute, 86 + n * 16];
+  });
+  ctx.fillStyle = 'rgba(220,200,150,0.75)'; ctx.fillRect(S * 0.42, 0, S * 0.16, S); // tape
+  ctx.strokeStyle = 'rgba(70,45,20,0.6)'; ctx.lineWidth = 3; ctx.strokeRect(1, 1, S - 2, S - 2);
+  return c;
+}
+function crate(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const pl = Math.floor(y / (S / 6));
+    const n = fbm(u * 0.4 + pl, v * 6, 8, 3, 121);
+    const t = hash(pl, 0, 122);
+    let r = 150 + n * 40 + t * 20, g = 108 + n * 28 + t * 12, b = 64 + n * 14;
+    if (y % (S / 6) < 2) { r *= 0.5; g *= 0.5; b *= 0.5; }
+    return [r, g, b];
+  });
+  ctx.fillStyle = '#6b4824';
+  const f = S * 0.11;
+  ctx.fillRect(0, 0, S, f); ctx.fillRect(0, S - f, S, f); ctx.fillRect(0, 0, f, S); ctx.fillRect(S - f, 0, f, S);
+  ctx.save(); ctx.translate(S / 2, S / 2); ctx.rotate(Math.PI / 4); ctx.fillRect(-S * 0.7, -f / 2, S * 1.4, f); ctx.restore();
+  ctx.fillStyle = '#333'; for (const [px, py] of [[f / 2, f / 2], [S - f / 2, f / 2], [f / 2, S - f / 2], [S - f / 2, S - f / 2]]) { ctx.beginPath(); ctx.arc(px, py, 3, 0, 7); ctx.fill(); }
+  return c;
+}
+function woodProp(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v) => {
+    const n = fbm(u * 0.3, v * 5, 8, 4, 131);
+    const ring = Math.sin(n * 25) * 0.5 + 0.5;
+    return [160 + ring * 25 - n * 30, 108 + ring * 14 - n * 22, 62 - n * 12];
+  });
+  return c;
+}
+function metal(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u * 0.2, v * 3, 8, 3, 141);
+    const b = 120 + n * 40 + hash(x, y, 142) * 10;
+    return [b, b * 1.02, b * 1.06];
+  });
+  return c;
+}
+function barrel(S) {
+  const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 6, 4, 151);
+    const rust = fbm(u, v, 3, 4, 152);
+    let r = 40 + n * 25, g = 82 + n * 30, b = 150 + n * 40;
+    if (rust > 0.6) { const k = (rust - 0.6) * 2.5; r += (120 - r) * k; g += (70 - g) * k; b += (40 - b) * k; }
+    const ry = v % 0.33;
+    if (ry < 0.03) { r *= 0.6; g *= 0.6; b *= 0.6; } else if (ry < 0.05) { r *= 1.25; g *= 1.25; b *= 1.25; }
+    return [r, g, b];
+  });
+  return c;
+}
+
+// ======================================================================
+//  Clothing (grayscale/white base: the material color tints them)
+// ======================================================================
+function fabric(ctx, S, s, amt = 14) {
+  paint(ctx, S, S, (u, v, x, y) => {
+    const n = fbm(u, v, 16, 2, s) * amt + ((x + y) % 3 === 0 ? -4 : 0);
+    const b = 236 + n - amt / 2;
+    return [b, b, b];
+  });
+}
+// Torso lathe UV: u wraps around (front = 0.5), v bottom(0) -> top(1). Canvas y is flipped (top = v1).
+function shirtTex(type) {
+  const S = 256; const [c, ctx] = canvas(S);
+  fabric(ctx, S, 160 + type.length);
+  // soft fold shading
+  const g = ctx.createLinearGradient(0, 0, S, 0);
+  g.addColorStop(0, 'rgba(0,0,0,0.18)'); g.addColorStop(0.25, 'rgba(0,0,0,0)'); g.addColorStop(0.75, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.18)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, S - 10, S, 4); // hem
+  const cx = S / 2;
+  const dark = 'rgba(0,0,0,0.35)';
+  if (type === 'tshirt' || type === 'longsleeve' || type === 'tank') {
+    ctx.strokeStyle = dark; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.ellipse(cx, 0, type === 'tank' ? 40 : 26, type === 'tank' ? 50 : 22, 0, 0, Math.PI); ctx.stroke();
+  }
+  if (type === 'polo' || type === 'buttonup') {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.moveTo(cx - 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx - 6, 0); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx + 6, 0); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx - 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx + 30, 0); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(cx - 5, 20, 10, type === 'polo' ? 50 : S);
+    ctx.fillStyle = 'rgba(30,30,30,0.6)';
+    for (let y = 34; y < (type === 'polo' ? 70 : S - 20); y += 26) { ctx.beginPath(); ctx.arc(cx, y, 2.6, 0, 7); ctx.fill(); }
+    if (type === 'buttonup') { ctx.strokeStyle = dark; ctx.strokeRect(cx + 22, 60, 24, 26); }
+  }
+  if (type === 'hoodie') {
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath(); ctx.moveTo(cx - 44, S - 20); ctx.lineTo(cx - 34, S - 80); ctx.lineTo(cx + 34, S - 80); ctx.lineTo(cx + 44, S - 20); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = 'rgba(250,250,250,0.9)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx - 10, 10); ctx.lineTo(cx - 12, 60); ctx.moveTo(cx + 10, 10); ctx.lineTo(cx + 12, 60); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, S - 22, S, 12);
+  }
+  if (type === 'jacket') {
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(cx - 3, 0, 6, S);
+    ctx.fillStyle = 'rgba(200,200,200,0.8)'; for (let y = 4; y < S; y += 6) ctx.fillRect(cx - 1, y, 2, 3);
+    ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(cx - 60, S - 90, 30, 4); ctx.fillRect(cx + 30, S - 90, 30, 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, S - 16, S, 10);
+    ctx.beginPath(); ctx.moveTo(cx - 34, 0); ctx.lineTo(cx - 4, 50); ctx.lineTo(cx - 4, 0); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx + 34, 0); ctx.lineTo(cx + 4, 50); ctx.lineTo(cx + 4, 0); ctx.fill();
+  }
+  return tex(c, false);
+}
+function sleeveTex() {
+  const S = 64; const [c, ctx] = canvas(S);
+  fabric(ctx, S, 170, 10);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, S - 5, S, 4);
+  return tex(c, false);
+}
+function pantsTex(type) {
+  const S = 128; const [c, ctx] = canvas(S);
+  if (type === 'jeans') {
+    paint(ctx, S, S, (u, v, x, y) => { const t = ((x + y) % 4 < 2) ? 10 : -6; const n = fbm(u, v, 8, 3, 171) * 30; const b = 215 + t + n - 15; return [b, b, b]; });
+    ctx.strokeStyle = 'rgba(255,220,140,0.9)'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5;
+    for (const x of [S * 0.25, S * 0.75]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S); ctx.stroke(); }
+  } else {
+    fabric(ctx, S, 172 + type.length, 10);
+  }
+  if (type === 'slacks') { ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(S / 2 - 1, 0, 2, S); }
+  if (type === 'cargo') { ctx.fillStyle = 'rgba(0,0,0,0.18)'; for (const x of [S * 0.25, S * 0.75]) ctx.fillRect(x - 12, S * 0.35, 24, 30); }
+  ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, S - 5, S, 4);
+  return tex(c, false);
+}
+// Pelvis (has the belt + pockets)
+function hipsTex(type) {
+  const S = 128; const [c, ctx] = canvas(S);
+  fabric(ctx, S, 180, 12);
+  ctx.fillStyle = 'rgba(25,20,15,0.9)'; ctx.fillRect(0, 0, S, 12); // belt (top of lathe = canvas top)
+  ctx.fillStyle = '#c9a54a'; ctx.fillRect(S / 2 - 6, 1, 12, 10);
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(S * 0.32, 12, 14, 0, Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.arc(S * 0.68, 12, 14, 0, Math.PI); ctx.stroke();
+  if (type === 'jeans') { ctx.strokeStyle = 'rgba(255,220,140,0.9)'; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(S / 2, 12); ctx.lineTo(S / 2, S); ctx.stroke(); }
+  return tex(c, false);
+}
+
+// ======================================================================
+//  Faces (SphereGeometry UV: front of head (-Z) is u = 0.75)
+// ======================================================================
+const faceCache = new Map();
+export function faceTexture(face, skinHex) {
+  const key = face + skinHex;
+  if (faceCache.has(key)) return faceCache.get(key);
+  const W = 512, H = 256;
+  const [c, ctx] = canvas(W, H);
+  const sk = new THREE.Color(skinHex);
+  const s = (k) => `rgb(${Math.min(255, sk.r * 255 * k) | 0},${Math.min(255, sk.g * 255 * k) | 0},${Math.min(255, sk.b * 255 * k) | 0})`;
+  ctx.fillStyle = s(1); ctx.fillRect(0, 0, W, H);
+  // skin variation + cheeks
+  for (let i = 0; i < 900; i++) { ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.03})`; ctx.fillRect(Math.random() * W, Math.random() * H, 3, 3); }
+  const cx = W * 0.75, cy = H * 0.5;
+  // draw all features 30% larger around the face center
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(1.3, 1.3); ctx.translate(-cx, -cy);
+  const blush = (x) => { const g = ctx.createRadialGradient(x, cy + 26, 0, x, cy + 26, 22); g.addColorStop(0, 'rgba(220,90,90,0.22)'); g.addColorStop(1, 'rgba(220,90,90,0)'); ctx.fillStyle = g; ctx.fillRect(x - 25, cy, 50, 55); };
+  blush(cx - 40); blush(cx + 40);
+  // nose shadow
+  ctx.fillStyle = s(0.82); ctx.beginPath(); ctx.ellipse(cx, cy + 20, 7, 13, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = s(1.08); ctx.beginPath(); ctx.ellipse(cx - 2, cy + 16, 3, 8, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = s(0.6); ctx.beginPath(); ctx.arc(cx - 5, cy + 31, 2.4, 0, 7); ctx.arc(cx + 5, cy + 31, 2.4, 0, 7); ctx.fill();
+  // eyes
+  const eye = (ex, look = 0, lid = 0) => {
+    ctx.fillStyle = '#fbfbf8'; ctx.beginPath(); ctx.ellipse(ex, cy, 13, 8.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = face === 'blue' ? '#3a78b8' : '#4d3420'; ctx.beginPath(); ctx.arc(ex + look, cy + 0.5, 6.2, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(ex + look, cy + 0.5, 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + look + 2, cy - 2, 1.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = s(0.55); ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(ex, cy, 13, 8.5, 0, Math.PI, 0); ctx.stroke();
+    if (lid) { ctx.fillStyle = s(0.92); ctx.fillRect(ex - 14, cy - 10, 28, 10 * lid); }
+  };
+  const tired = face === 'tired', angry = face === 'serious';
+  eye(cx - 26, 0, tired ? 0.75 : angry ? 0.35 : 0); eye(cx + 26, 0, tired ? 0.75 : angry ? 0.35 : 0);
+  // brows
+  ctx.strokeStyle = face === 'blonde' ? '#b08840' : '#3a2616'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (angry) { ctx.moveTo(cx - 40, cy - 18); ctx.lineTo(cx - 12, cy - 12); ctx.moveTo(cx + 40, cy - 18); ctx.lineTo(cx + 12, cy - 12); }
+  else if (face === 'surprised') { ctx.moveTo(cx - 40, cy - 20); ctx.quadraticCurveTo(cx - 26, cy - 30, cx - 12, cy - 21); ctx.moveTo(cx + 40, cy - 20); ctx.quadraticCurveTo(cx + 26, cy - 30, cx + 12, cy - 21); }
+  else { ctx.moveTo(cx - 40, cy - 14); ctx.quadraticCurveTo(cx - 26, cy - 21, cx - 12, cy - 15); ctx.moveTo(cx + 40, cy - 14); ctx.quadraticCurveTo(cx + 26, cy - 21, cx + 12, cy - 15); }
+  ctx.stroke();
+  // mouth
+  ctx.strokeStyle = '#7a3a32'; ctx.fillStyle = '#6a2a26'; ctx.lineWidth = 3.5;
+  const my = cy + 52;
+  ctx.beginPath();
+  if (face === 'smile' || face === 'freckles' || face === 'blue') { ctx.moveTo(cx - 18, my - 4); ctx.quadraticCurveTo(cx, my + 12, cx + 18, my - 4); ctx.stroke(); }
+  else if (face === 'surprised') { ctx.ellipse(cx, my, 7, 9, 0, 0, 7); ctx.fill(); }
+  else if (angry) { ctx.moveTo(cx - 16, my + 3); ctx.quadraticCurveTo(cx, my - 4, cx + 16, my + 3); ctx.stroke(); }
+  else { ctx.moveTo(cx - 15, my); ctx.lineTo(cx + 15, my); ctx.stroke(); }
+  if (face === 'freckles') { ctx.fillStyle = s(0.7); for (let i = 0; i < 26; i++) { ctx.beginPath(); ctx.arc(cx + (Math.random() - 0.5) * 90, cy + 18 + Math.random() * 18, 1.6, 0, 7); ctx.fill(); } }
+  if (face === 'beard' || face === 'stubble') {
+    ctx.fillStyle = face === 'beard' ? 'rgba(45,30,18,0.92)' : 'rgba(40,30,20,0.35)';
+    ctx.beginPath(); ctx.moveTo(cx - 56, cy + 10); ctx.quadraticCurveTo(cx - 50, cy + 95, cx, cy + 96); ctx.quadraticCurveTo(cx + 50, cy + 95, cx + 56, cy + 10);
+    ctx.lineTo(cx + 40, cy + 40); ctx.quadraticCurveTo(cx, cy + 30, cx - 40, cy + 40); ctx.fill();
+    if (face === 'beard') { ctx.fillStyle = '#7a3a32'; ctx.fillRect(cx - 12, my - 1, 24, 4); }
+  }
+  if (face === 'glasses') {
+    ctx.strokeStyle = '#151515'; ctx.lineWidth = 4;
+    ctx.strokeRect(cx - 44, cy - 12, 34, 24); ctx.strokeRect(cx + 10, cy - 12, 34, 24);
+    ctx.beginPath(); ctx.moveTo(cx - 10, cy - 4); ctx.lineTo(cx + 10, cy - 4); ctx.moveTo(cx - 44, cy - 6); ctx.lineTo(cx - 64, cy - 8); ctx.moveTo(cx + 44, cy - 6); ctx.lineTo(cx + 64, cy - 8); ctx.stroke();
+  }
+  ctx.restore();
+  const t = tex(c, false);
+  faceCache.set(key, t);
+  return t;
+}
+export const FACES = ['smile', 'neutral', 'serious', 'surprised', 'tired', 'glasses', 'beard', 'stubble', 'freckles', 'blue'];
+
+// ======================================================================
+export function makeTextures(renderer, quality = 'medium') {
+  RENDERER = renderer;
+  const S = quality === 'low' ? 256 : 512;
   const T = {};
+  T.wallPainted = tex(wallPainted(S));
+  T.wallConcrete = tex(wallConcrete(S));
+  T.floorTile = tex(floorTile(S));
+  T.floorWood = tex(floorWood(S));
+  T.floorCarpet = tex(floorCarpet(256));
+  T.floorConcrete = tex(floorConcrete(S));
+  T.grass = tex(grass(S));
+  T.asphalt = tex(asphalt(256));
+  T.ceiling = tex(ceiling(256));
+  T.shelf = tex(shelf(256));
+  T.counter = tex(counter(256));
+  T.pillar = tex(pillar(256));
+  T.cardboard = tex(cardboard(128));
+  T.crate = tex(crate(256));
+  T.wood = tex(woodProp(128));
+  T.metal = tex(metal(128));
+  T.barrel = tex(barrel(256));
+  T.shirt = {};
+  for (const s of ['tshirt', 'longsleeve', 'polo', 'buttonup', 'hoodie', 'jacket', 'tank']) T.shirt[s] = shirtTex(s);
+  T.sleeve = sleeveTex();
+  T.pants = {}; T.hips = {};
+  for (const p of ['jeans', 'slacks', 'cargo', 'shorts', 'sweats']) { T.pants[p] = pantsTex(p); T.hips[p] = hipsTex(p); }
 
-  // Indoor floor: orange dev grid
-  T.floor = toTex(devGrid('#c8742e', '#8a4a18', 'rgba(255,220,180,0.35)', '2m'), renderer);
-
-  // Walls: light grey measure grid
-  T.wall = toTex(devGrid('#b4b4b0', '#7a7a76', 'rgba(255,255,255,0.35)', ''), renderer);
-
-  // Ceiling: white acoustic panels
+  // Sky
   {
-    const S = 256; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#d8d8d4'; ctx.fillRect(0, 0, S, S);
-    noise(ctx, S, 10);
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let i = 0; i < 400; i++) ctx.fillRect(Math.random() * S, Math.random() * S, 2, 2);
-    ctx.strokeStyle = '#9a9a96'; ctx.lineWidth = 4;
-    ctx.strokeRect(2, 2, S - 4, S - 4);
-    ctx.beginPath(); ctx.moveTo(S / 2, 0); ctx.lineTo(S / 2, S); ctx.moveTo(0, S / 2); ctx.lineTo(S, S / 2); ctx.stroke();
-    T.ceiling = toTex(c, renderer);
-  }
-
-  // Outdoor ground: grass
-  {
-    const S = 256; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#4f7a34'; ctx.fillRect(0, 0, S, S);
-    for (let i = 0; i < 5000; i++) {
-      const g = 90 + Math.random() * 70;
-      ctx.fillStyle = `rgba(${g * 0.55 | 0},${g | 0},${g * 0.35 | 0},0.5)`;
-      ctx.fillRect(Math.random() * S, Math.random() * S, 2, 3 + Math.random() * 3);
+    const [c, ctx] = canvas(1024, 512);
+    const g = ctx.createLinearGradient(0, 0, 0, 512);
+    g.addColorStop(0, '#2f63ad'); g.addColorStop(0.5, '#86b4e3'); g.addColorStop(1, '#e4ecf2');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 512);
+    const img = ctx.getImageData(0, 0, 1024, 512);
+    const d = img.data;
+    for (let y = 0; y < 300; y++) for (let x = 0; x < 1024; x++) {
+      const n = fbm(x / 1024, y / 512, 4, 5, 191);
+      const cl = Math.max(0, n - 0.52) * 3 * (1 - y / 300);
+      const i = (y * 1024 + x) * 4;
+      d[i] += (255 - d[i]) * cl; d[i + 1] += (255 - d[i + 1]) * cl; d[i + 2] += (255 - d[i + 2]) * cl;
     }
-    T.grass = toTex(c, renderer);
+    ctx.putImageData(img, 0, 0);
+    T.sky = new THREE.CanvasTexture(c); T.sky.colorSpace = THREE.SRGBColorSpace; T.sky.wrapS = THREE.RepeatWrapping;
   }
-
-  // Concrete (pillars / trim)
+  // blob shadow
   {
-    const S = 256; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#7d7d7d'; ctx.fillRect(0, 0, S, S);
-    noise(ctx, S, 30);
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(0, S / 2); ctx.lineTo(S, S / 2); ctx.stroke();
-    T.concrete = toTex(c, renderer);
-  }
-
-  // Wooden crate
-  {
-    const S = 256; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#9c6b37'; ctx.fillRect(0, 0, S, S);
-    for (let y = 0; y < S; y += 32) {
-      ctx.fillStyle = y % 64 ? '#a87540' : '#93622f';
-      ctx.fillRect(0, y, S, 30);
-      ctx.fillStyle = 'rgba(60,30,10,0.5)'; ctx.fillRect(0, y + 30, S, 2);
-    }
-    noise(ctx, S, 20);
-    ctx.strokeStyle = '#5c3a18'; ctx.lineWidth = 18;
-    ctx.strokeRect(9, 9, S - 18, S - 18);
-    ctx.beginPath(); ctx.moveTo(18, 18); ctx.lineTo(S - 18, S - 18); ctx.stroke();
-    T.crate = toTex(c, renderer);
-  }
-
-  // Brick (half walls)
-  {
-    const S = 256; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#c9c4b8'; ctx.fillRect(0, 0, S, S);
-    const bh = 32, bw = 64;
-    for (let row = 0; row < S / bh; row++) {
-      const off = (row % 2) * (bw / 2);
-      for (let x = -bw; x < S + bw; x += bw) {
-        const r = 150 + Math.random() * 30;
-        ctx.fillStyle = `rgb(${r | 0},${(r * 0.45) | 0},${(r * 0.35) | 0})`;
-        ctx.fillRect(x + off + 2, row * bh + 2, bw - 4, bh - 4);
-      }
-    }
-    noise(ctx, S, 16);
-    T.brick = toTex(c, renderer);
-  }
-
-  // Sky: vertical gradient with soft clouds
-  {
-    const W = 512, H = 256;
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#3d76c4'); g.addColorStop(0.55, '#8fbbe8'); g.addColorStop(1, '#dfeaf2');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    for (let i = 0; i < 60; i++) {
-      const x = Math.random() * W, y = 30 + Math.random() * H * 0.5, r = 12 + Math.random() * 40;
-      const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, 'rgba(255,255,255,0.55)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = rg; ctx.fillRect(x - r, y - r, r * 2, r * 2);
-    }
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = THREE.RepeatWrapping;
-    T.sky = t;
-  }
-
-  // Soft round shadow blob used under characters
-  {
-    const S = 64; const [c, ctx] = canvas(S);
-    const rg = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-    rg.addColorStop(0, 'rgba(0,0,0,0.55)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = rg; ctx.fillRect(0, 0, S, S);
+    const [c, ctx] = canvas(64);
+    const rg = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(0,0,0,0.6)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, 64, 64);
     T.blob = new THREE.CanvasTexture(c);
   }
-
-  // Face (eyes + mouth) for character heads
+  // soft glow sprite (light fixtures / muzzle)
   {
-    const S = 128; const [c, ctx] = canvas(S);
-    ctx.fillStyle = '#e0b48c'; ctx.fillRect(0, 0, S, S);
-    // SphereGeometry maps the -Z side (the character's front) to u = 0.75 -> x = 96
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(82, 52, 10, 7); ctx.fillRect(101, 52, 10, 7);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(86, 53, 5, 6); ctx.fillRect(104, 53, 5, 6);
-    ctx.fillStyle = '#5a3020'; ctx.fillRect(80, 46, 14, 3); ctx.fillRect(99, 46, 14, 3);
-    ctx.fillStyle = '#9a5a48'; ctx.fillRect(89, 76, 16, 3);
-    T.face = new THREE.CanvasTexture(c);
-    T.face.colorSpace = THREE.SRGBColorSpace;
+    const [c, ctx] = canvas(64);
+    const rg = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(255,250,235,0.9)'); rg.addColorStop(0.4, 'rgba(255,240,200,0.25)'); rg.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = rg; ctx.fillRect(0, 0, 64, 64);
+    T.glow = new THREE.CanvasTexture(c);
   }
-
   return T;
 }

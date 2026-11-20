@@ -2,71 +2,103 @@
 //  MAP.JS — the level. Edit the ASCII LAYOUT below to change the map!
 //
 //  Each character = one CELL (2 x 2 meters).
-//    #  wall (full height)          .  indoor floor (has ceiling)
-//    o  outdoor floor (open sky)    P  pillar (full height)
-//    C  crate (indoor, jumpable)    c  crate (outdoor)
-//    H  half wall (indoor, jump)    h  half wall (outdoor)
-//    S  spawn point (indoor)        s  spawn point (outdoor)
-//    G  gun part spot (indoor)      g  gun part spot (outdoor)
+//   FLOORS   .  tile (indoor)      ,  wood (indoor)     ;  carpet (indoor)
+//            _  concrete (indoor)  o  grass (outdoor)   a  asphalt (outdoor)
+//   SOLID    #  wall (6 m)         P  pillar            Q  tall shelf (2.2 m)
+//            W  counter / desk (1 m, you can jump on it)
+//   PROPS (movable physics objects)
+//            B  cardboard box      C  wooden crate      K  chair
+//            T  round table        X  barrel
+//   MARKERS  S  spawn point        G  gun part spot
+//  Markers / props / solid furniture take the floor type of their neighbours.
+//  Indoor floors get a ceiling with lights automatically (every 3rd cell).
 //  Keep the outer border made of '#'. All rows must be the same length.
 // =====================================================================
 import * as THREE from '../vendor/three.module.min.js';
+import { fbm } from './textures.js';
 
 export const CELL = 2;          // meters per character
 export const WALL_H = 6;        // wall height
 export const CEIL_H = 6;        // ceiling height indoors
-export const CRATE_H = 0.9;     // jumpable
-export const HALF_H = 1.0;      // jumpable half wall
 
 export const LAYOUT = [
-  '############################################',
-  '############################################',
-  '##...........G################............##',
-  '##............################.CC..G...CC.##',
-  '##..S......S..################.C.S......C.##',
-  '##...............P...P...P................##',
-  '##....................................S...##',
-  '##.G...PP.......S....G.....S.............G##',
-  '##.....PP...........................CC....##',
-  '##..........G....P...P...P..........C.....##',
-  '##............#####......#####.........S..##',
-  '##..S......S..#####......#####....S.......##',
-  '##............#####...G..#####..CC......C.##',
-  '##............#####......#####G...........##',
-  '#####.....#########......#########.....#####',
-  '#####.....#########......#########.....#####',
-  '#####..S..######ooooooooooog######..S..#####',
-  '#####P...P######oooosooooooo######P...P#####',
-  '#####.....######oohhooooocoo######.....#####',
-  '#####...........oooooooooooo...........#####',
-  '#####...........osoogoooooso...........#####',
-  '#####P.G.P..G...ooooohoooooo......P.G.P#####',
-  '#####...........oooooohooooo...G.......#####',
-  '#####...........ooooooogooso...........#####',
-  '#####...........oocooooooooo...........#####',
-  '#####P...P######oocooooohhoo######P...P#####',
-  '#####.....######ooooooosoooo######.....#####',
-  '#####..S..######gooooooooooo######..S..#####',
-  '#####.....#########......#########.....#####',
-  '#####.....#########......#########.....#####',
-  '##............#####......#####............##',
-  '##............#####..G...#####............##',
-  '##..S.....SC..#####......#####..S......S..##',
-  '##............#####......#####...P....P...##',
-  '##..HHHH.........P...P...P................##',
-  '##.G...............................C......##',
-  '##..............S....G.....S........C....G##',
-  '##......HHHH..............................##',
-  '##...............P...P...P.......P....P...##',
-  '##..S.......S.################..S......S..##',
-  '##.CC.........################............##',
-  '##..........G.################.G..........##',
-  '############################################',
-  '############################################',
-];
+  '############################################################',
+  '############################################################',
+  '##;QQQQ;;;;;;;;;#....#................#....#_____________G##',
+  '##;;;;;;;;;;;;B;#..G.#..S............G#....#_B__S_______B_##',
+  '##;;S;;;;;;;;;B;#....#...K....K....K..#....#______________##',
+  '##;;WWW;;;WWW;;;#....#..KTK..KTK..KTK.#....#__QQQQQQQQQ___##',
+  '##;;;K;;;;;K;;;;#....#...K....K....K..#....#_____________S##',
+  '##G;;;;;;;;;S;;;............................C__B__G_B___C_##',
+  '##;;;;;;;;;;;;;;..S...G.............S.......______________##',
+  '##;;WWW;;;WWW;;;.........K....K....K........__QQQQQQQQQ___##',
+  '##;;;K;;;;;K;;;;#....#..KTK..KTK..KTK.#....#______________##',
+  '##;S;;;;;G;;;;;;#....#...K....K....K..#....#_B_____S___B__##',
+  '##;;;;;;;;;;;;;G#.B..#.S..............#....#_____________X##',
+  '##;;WWW;;;WWW;;;#....#.......S........#..S.#_SQQQQQQQQQ___##',
+  '##;;;K;;;;;K;C;;#....#.WWWWW.....B..X.#....#X_____________##',
+  '##;;;;;;S;;;;;;;#....#.........G......#....#__B__B___G__B_##',
+  '#######...#######....#######....#######....######...########',
+  '##.................................G......................##',
+  '##........S..............B................................##',
+  '##................................X...............S.......##',
+  '##........................................................##',
+  '#######...#######....#######....#######....######...########',
+  '##.......G......#....#oooooooaaooooooo#....#,,,,,,,G,,,,,,##',
+  '##.S....K.....B.#....#ooooooSaaGoooooo#....#,CC,,,,,,,,,,X##',
+  '##..............#....#ooCBoooaaooooCoo#....#,C,,,S,,,,,,,,##',
+  '##...P......P...#..G.#ooBooKoaaooXoooo#....#,,,P,,,,,,P,,,##',
+  '##........S.....#....#ooooTooaaSoooooo#..B.#,,,,,,,,,,,,,,##',
+  '##.K............#....#ooooXooaaoKooXoo#....#,S,,,,,,,,,,,G##',
+  '##...........S........oooooooaaooooooo......,,,,,,,,,,,,,,##',
+  '##....................aaaaaaaaaaaaaaaa......,,,,,,B,,,,,,,##',
+  '##....WWWWW...........aGaaaaaaaaaaaaaa......,,,,,,,B,,,,S,##',
+  '##....................oooooooaaooooooo......,,,,,B,,,,,,,,##',
+  '##G....K.K......#....#oooooooaaooKoooS#....#,,,,,,,,,,,,,,##',
+  '##..............#...X#ooooBooaaoXooooo#....#G,,,,,,,,,,,,,##',
+  '##...P......P...#....#oooooKoaaooToooo#....#,,,P,,,,,,P,,,##',
+  '##..............#....#ooCooooaaoooBCoo#.G..#,,,,,,,,,,,,,,##',
+  '##.BC.S.......K.#....#oSoooooaaooooooG#....#,,,,,,,,S,,,C,##',
+  '##.............G#....#oooooooaaooooooo#....#,,,,,,,,,,,CC,##',
+  '#######...#######....#######....#######....######...########',
+  '##........................................................##',
+  '##..........B.................S.......................X...##',
+  '##.......................G.....................B.......S..##',
+  '##........................................................##',
+  '#######...#######....#######....#######....######...########',
+  '##;;;;;;;;;;;;;;#....#________________#....#aaaaaGaaaaaaaa##',
+  '##;S;;;;;;;;;;B;#....#_WWWW______WWWW_#....#aaaaaaaaaaaaaa##',
+  '##;;QQQQQQQQQ;;;#....#__K______S__K__G#....#aaCCaaaaaaaaaa##',
+  '##;;;;;;;;G;;;;;#..B.#________________#....#aaaaaaaaaXaaSa##',
+  '##;;;;;;;;;;;;S;#....#_S_____C__X_____#....#aaaaaaaaaaaaaa##',
+  '##;;QQQQQQQQQ;;;......___X__________X_......aaaSaaaaaaaaaa##',
+  '##G;;;;;;;;;;;;;...S..______B__B______......aaaaaaXaBaaaaa##',
+  '##;;;;;;;;;;;;;;......__C_________B___......aaaaaaaaaaaaaG##',
+  '##;;QQQQQQQQQ;;;#....#________C______S#....#aaXaaaaaaaaaaa##',
+  '##;;;;;;;;;;;;;;#....#_____X_______C__#....#aaaaaaaXaaaaaa##',
+  '##;;;;;;;;;;;S;;#....#________________#.S..#aSaaaaaaaaaaaa##',
+  '##;;KTK;;;KTK;;;#....#______G____X____#....#aaaaXaaaaaaaCa##',
+  '##;;;K;;;;;K;;;;#....#_WWWW_________B_#....#aBaaaaaaaaaCCa##',
+  '##;;;;;;S;;;;;;G#....#G_____S_________#....#GaaaaaaaSaaaaa##',
+  '############################################################',
+  '############################################################',];
 
-// Cell kinds
-const K = { FLOOR: 0, WALL: 1, PILLAR: 2, CRATE: 3, HALF: 4 };
+// ---- cell kinds ----
+export const K = { FLOOR: 0, WALL: 1, PILLAR: 2, SHELF: 3, COUNTER: 4 };
+const SOLID = { '#': [K.WALL, WALL_H], 'P': [K.PILLAR, WALL_H], 'Q': [K.SHELF, 2.2], 'W': [K.COUNTER, 1.0] };
+const FLOOR_CH = { '.': 'tile', ',': 'wood', ';': 'carpet', '_': 'concrete', 'o': 'grass', 'a': 'asphalt' };
+const FLOOR_LIST = ['tile', 'wood', 'carpet', 'concrete', 'grass', 'asphalt'];
+const OUTDOOR = new Set(['grass', 'asphalt']);
+export const PROP_CH = { B: 'box', C: 'crate', K: 'chair', T: 'table', X: 'barrel' };
+
+// ---- lighting constants (baked into vertex colors) ----
+const SUN_DIR = new THREE.Vector3(0.45, 0.82, 0.36).normalize();
+const SUN_COL = [1.15, 1.05, 0.88];
+const SKY_COL = [0.42, 0.5, 0.62];
+const INDOOR_AMB = [0.13, 0.125, 0.12];
+const LAMP_COL = [1.0, 0.9, 0.74];
+const LAMP_INT = 2.3;
+const LAMP_RANGE = 10;
 
 export class GameMap {
   constructor(layout = LAYOUT) {
@@ -76,179 +108,440 @@ export class GameMap {
     this.worldW = this.w * CELL;
     this.worldD = this.h * CELL;
     const n = this.w * this.h;
-    this.heights = new Float32Array(n);  // solid height of each cell (0 = walkable floor)
+    this.heights = new Float32Array(n);
     this.kinds = new Uint8Array(n);
+    this.floor = new Uint8Array(n);     // index into FLOOR_LIST
     this.outdoor = new Uint8Array(n);
     this.spawns = [];
     this.partSpots = [];
-    for (let z = 0; z < this.h; z++) {
-      const row = layout[z];
-      for (let x = 0; x < this.w; x++) {
-        const ch = row[x] || '#';
-        const i = z * this.w + x;
-        const isOut = ch === ch.toLowerCase() && ch !== '#' && ch !== '.';
-        this.outdoor[i] = isOut ? 1 : 0;
-        const cx = (x + 0.5) * CELL, cz = (z + 0.5) * CELL;
-        switch (ch) {
-          case '#': this.kinds[i] = K.WALL; this.heights[i] = WALL_H; break;
-          case 'P': this.kinds[i] = K.PILLAR; this.heights[i] = WALL_H; break;
-          case 'C': case 'c': this.kinds[i] = K.CRATE; this.heights[i] = CRATE_H; break;
-          case 'H': case 'h': this.kinds[i] = K.HALF; this.heights[i] = HALF_H; break;
-          case 'S': case 's': this.spawns.push({ x: cx, z: cz }); break;
-          case 'G': case 'g': this.partSpots.push({ x: cx, z: cz }); break;
-          default: break;
+    this.propSpawns = [];
+    this.props = [];                    // live physics props (filled by the game)
+    const chAt = (x, z) => (x < 0 || z < 0 || x >= this.w || z >= this.h ? '#' : layout[z][x] || '#');
+
+    // floor type for every cell (markers inherit from the nearest real floor)
+    const floorOf = (x, z) => {
+      for (let r = 0; r < 6; r++) {
+        const counts = {};
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const f = FLOOR_CH[chAt(x + dx, z + dz)];
+          if (f) counts[f] = (counts[f] || 0) + 1;
         }
+        const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        if (best) return best[0];
       }
+      return 'tile';
+    };
+
+    for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
+      const ch = chAt(x, z);
+      const i = z * this.w + x;
+      const f = floorOf(x, z);
+      this.floor[i] = FLOOR_LIST.indexOf(f);
+      this.outdoor[i] = OUTDOOR.has(f) && ch !== '#' ? 1 : 0;
+      const cx = (x + 0.5) * CELL, cz = (z + 0.5) * CELL;
+      if (SOLID[ch]) { [this.kinds[i], this.heights[i]] = SOLID[ch]; continue; }
+      if (ch === 'S') this.spawns.push({ x: cx, z: cz });
+      if (ch === 'G') this.partSpots.push({ x: cx, z: cz });
+      if (PROP_CH[ch]) {
+        const type = PROP_CH[ch];
+        // chairs face a neighbouring table / desk
+        let yaw = (hash2(x, z) - 0.5) * 0.6;
+        if (type === 'chair') {
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const c2 = chAt(x + dx, z + dz);
+            if (c2 === 'T' || c2 === 'W') { yaw = Math.atan2(-dx, -dz) + (hash2(z, x) - 0.5) * 0.4; break; }
+          }
+        }
+        this.propSpawns.push({ type, x: cx, z: cz, yaw });
+      }
+    }
+    // ceiling lights
+    this.lights = [];
+    for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
+      const i = z * this.w + x;
+      if (x % 3 === 1 && z % 3 === 1 && !this.outdoor[i] && this.heights[i] < WALL_H) {
+        this.lights.push({ x: (x + 0.5) * CELL, y: CEIL_H - 0.1, z: (z + 0.5) * CELL });
+      }
+    }
+    this.lightBins = new Map();
+    for (const L of this.lights) {
+      const k = `${Math.floor(L.x / LAMP_RANGE)},${Math.floor(L.z / LAMP_RANGE)}`;
+      if (!this.lightBins.has(k)) this.lightBins.set(k, []);
+      this.lightBins.get(k).push(L);
     }
   }
 
   inBounds(cx, cz) { return cx >= 0 && cz >= 0 && cx < this.w && cz < this.h; }
-  // Solid height of the cell at grid coords (out of bounds = wall)
   cellHeight(cx, cz) { return this.inBounds(cx, cz) ? this.heights[cz * this.w + cx] : WALL_H; }
   heightAt(x, z) { return this.cellHeight(Math.floor(x / CELL), Math.floor(z / CELL)); }
   isOutdoorCell(cx, cz) { return this.inBounds(cx, cz) && this.outdoor[cz * this.w + cx] === 1; }
   isOutdoor(x, z) { return this.isOutdoorCell(Math.floor(x / CELL), Math.floor(z / CELL)); }
+  floorTypeAt(x, z) {
+    const cx = Math.floor(x / CELL), cz = Math.floor(z / CELL);
+    return this.inBounds(cx, cz) ? FLOOR_LIST[this.floor[cz * this.w + cx]] : 'tile';
+  }
   center() { return { x: this.worldW / 2, z: this.worldD / 2 }; }
 
   // ---------------------------------------------------------------
-  //  Build the 3D meshes for the level
+  //  Ray through the grid (same as physics.raycastMap, local copy to
+  //  avoid an import cycle). Returns hit distance or maxDist.
   // ---------------------------------------------------------------
-  build(T) {
-    const group = new THREE.Group();
-    const mats = {
-      wall: new THREE.MeshLambertMaterial({ map: T.wall }),
-      pillar: new THREE.MeshLambertMaterial({ map: T.concrete }),
-      crate: new THREE.MeshLambertMaterial({ map: T.crate }),
-      half: new THREE.MeshLambertMaterial({ map: T.brick }),
-      floor: new THREE.MeshLambertMaterial({ map: T.floor }),
-      grass: new THREE.MeshLambertMaterial({ map: T.grass }),
-      ceiling: new THREE.MeshLambertMaterial({ map: T.ceiling, side: THREE.DoubleSide }),
-      light: new THREE.MeshBasicMaterial({ color: 0xfffbe8 }),
-    };
+  ray(ox, oy, oz, dx, dy, dz, maxDist) {
+    let cx = Math.floor(ox / CELL), cz = Math.floor(oz / CELL);
+    const stepX = dx > 0 ? 1 : -1, stepZ = dz > 0 ? 1 : -1;
+    const adx = Math.abs(dx), adz = Math.abs(dz);
+    const tDX = adx > 1e-9 ? CELL / adx : Infinity, tDZ = adz > 1e-9 ? CELL / adz : Infinity;
+    let tMX = adx > 1e-9 ? (dx > 0 ? (cx + 1) * CELL - ox : ox - cx * CELL) / adx : Infinity;
+    let tMZ = adz > 1e-9 ? (dz > 0 ? (cz + 1) * CELL - oz : oz - cz * CELL) / adz : Infinity;
+    const tFloor = dy < -1e-9 ? -oy / dy : Infinity;
+    let t = 0;
+    for (let g = 0; g < 400 && t < maxDist; g++) {
+      if (!this.inBounds(cx, cz)) return oy + dy * t > WALL_H ? maxDist : t;
+      const tEnd = Math.min(tMX, tMZ, maxDist);
+      const h = this.heights[cz * this.w + cx];
+      if (h > 0) {
+        const y0 = oy + dy * t, y1 = oy + dy * tEnd;
+        if (y0 < h) return t;
+        if (y1 < h) return (h - oy) / dy;
+      }
+      if (dy > 0 && !this.outdoor[cz * this.w + cx] && oy + dy * t < CEIL_H) {
+        if (oy + dy * tEnd > CEIL_H) return Math.max(t, (CEIL_H - oy) / dy);
+      }
+      if (tFloor <= tEnd) return tFloor;
+      t = Math.min(tMX, tMZ);
+      if (tMX < tMZ) { tMX += tDX; cx += stepX; } else { tMZ += tDZ; cz += stepZ; }
+    }
+    return maxDist;
+  }
 
-    // Greedy-merge cells of the same kind into big boxes (fewer triangles + draw calls)
-    const boxesOf = (pred) => {
-      const used = new Uint8Array(this.w * this.h);
-      const out = [];
-      for (let z = 0; z < this.h; z++) {
-        for (let x = 0; x < this.w; x++) {
-          const i = z * this.w + x;
-          if (used[i] || !pred(x, z)) continue;
-          let x1 = x;
-          while (x1 + 1 < this.w && !used[z * this.w + x1 + 1] && pred(x1 + 1, z)) x1++;
-          let z1 = z;
-          outer: while (z1 + 1 < this.h) {
-            for (let xx = x; xx <= x1; xx++) if (used[(z1 + 1) * this.w + xx] || !pred(xx, z1 + 1)) break outer;
-            z1++;
-          }
-          for (let zz = z; zz <= z1; zz++) for (let xx = x; xx <= x1; xx++) used[zz * this.w + xx] = 1;
-          out.push([x, z, x1, z1]);
+  // ---------------------------------------------------------------
+  //  Lighting model (used for baking AND for character light probes)
+  //  n = surface normal, or null for "any direction" (characters)
+  // ---------------------------------------------------------------
+  lightAt(px, py, pz, nx, ny, nz, lamps = true, base = true) {
+    let r = 0, g = 0, b = 0;
+    const hasN = nx !== null;
+    const ox = px + (hasN ? nx * 0.04 : 0), oy = py + (hasN ? ny * 0.04 : 0), oz = pz + (hasN ? nz * 0.04 : 0);
+    const sx = Math.floor((px + (hasN ? nx * 0.3 : 0)) / CELL), sz = Math.floor((pz + (hasN ? nz * 0.3 : 0)) / CELL);
+    const outside = this.isOutdoorCell(sx, sz);
+    if (base) {
+      r += INDOOR_AMB[0]; g += INDOOR_AMB[1]; b += INDOOR_AMB[2];
+      if (outside || py > CEIL_H - 0.01) {
+        // sky: how much of the sky can this point see?
+        let vis = 0;
+        const N = 6;
+        for (let k = 0; k < N; k++) {
+          const a = (k / N) * Math.PI * 2 + 0.3, el = 0.5 + (k % 2) * 0.45;
+          let dx = Math.cos(a) * Math.cos(el), dy = Math.sin(el), dz = Math.sin(a) * Math.cos(el);
+          if (hasN && dx * nx + dy * ny + dz * nz < 0) { dx = -dx; dz = -dz; }
+          if (this.ray(ox, oy, oz, dx, dy, dz, 40) >= 40) vis++;
         }
+        const f = (vis / N) * (hasN ? 0.55 + 0.45 * Math.max(0, ny) : 0.8);
+        r += SKY_COL[0] * f; g += SKY_COL[1] * f; b += SKY_COL[2] * f;
+        // sun (with real shadows from the walls)
+        const ndl = hasN ? nx * SUN_DIR.x + ny * SUN_DIR.y + nz * SUN_DIR.z : 0.6;
+        if (ndl > 0 && this.ray(ox, oy, oz, SUN_DIR.x, SUN_DIR.y, SUN_DIR.z, 60) >= 60) {
+          r += SUN_COL[0] * ndl; g += SUN_COL[1] * ndl; b += SUN_COL[2] * ndl;
+        }
+      }
+    }
+    if (lamps && !outside) {
+      const bx = Math.floor(px / LAMP_RANGE), bz = Math.floor(pz / LAMP_RANGE);
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        const bin = this.lightBins.get(`${bx + i},${bz + j}`);
+        if (!bin) continue;
+        for (const L of bin) {
+          const vx = L.x - px, vy = L.y - py, vz = L.z - pz;
+          const d = Math.hypot(vx, vy, vz);
+          if (d > LAMP_RANGE || d < 1e-3) continue;
+          const ndl = hasN ? (vx * nx + vy * ny + vz * nz) / d : 0.75;
+          if (ndl <= 0) continue;
+          const emit = 0.3 + 0.7 * Math.max(0, vy / d);
+          const fall = (1 / (1 + (d / 2.4) ** 2)) * (1 - d / LAMP_RANGE);
+          const k = LAMP_INT * ndl * emit * fall;
+          if (k < 0.01) continue;
+          if (this.ray(ox, oy, oz, vx / d, vy / d, vz / d, d - 0.15) < d - 0.2) continue;
+          r += LAMP_COL[0] * k; g += LAMP_COL[1] * k; b += LAMP_COL[2] * k;
+        }
+      }
+    }
+    return [r, g, b];
+  }
+
+  // Ambient occlusion: darker in corners and next to walls / furniture
+  aoAt(px, py, pz, nx, ny, nz) {
+    let occ = 0, tot = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      for (const rad of [0.45, 1.0]) {
+        const sx = px + Math.cos(a) * rad + nx * 0.3, sz = pz + Math.sin(a) * rad + nz * 0.3;
+        const h = this.heightAt(sx, sz);
+        const w = rad < 0.6 ? 1 : 0.5;
+        tot += w;
+        if (h > py + 0.05 && py < h + 0.1) occ += w;
+      }
+    }
+    let ao = 1 - 0.55 * (occ / tot);
+    if (ny === 0) { // walls: darker near floor and ceiling
+      if (py < 0.7) ao *= 0.62 + 0.38 * (py / 0.7);
+      if (!this.isOutdoor(px + nx * 0.3, pz + nz * 0.3) && py > CEIL_H - 0.5) ao *= 0.78 + 0.22 * ((CEIL_H - py) / 0.5);
+    }
+    return ao;
+  }
+
+  dirtAt(px, py, pz, isWall) {
+    const u = px / this.worldW, v = pz / this.worldD;
+    let d = 1 - Math.max(0, fbm(u, v, 12, 3, 901) - 0.5) * 0.7;
+    if (isWall) {
+      const s = fbm(u + v, py / 24, 16, 3, 902);
+      d *= 1 - (1 - Math.min(1, py / 1.6)) * 0.28 * s * 2;     // grime near the floor
+      d *= 1 - Math.max(0, s - 0.62) * 0.8;                       // stains
+    }
+    return d;
+  }
+
+  bakeColor(px, py, pz, nx, ny, nz, isWall = false) {
+    const [r, g, b] = this.lightAt(px, py, pz, nx, ny, nz);
+    const k = this.aoAt(px, py, pz, nx, ny, nz) * this.dirtAt(px, py, pz, isWall);
+    return [r * k, g * k, b * k];
+  }
+
+  // ---------------------------------------------------------------
+  //  Light probes for moving things (characters, props): a 1m grid
+  //  of pre-computed light at chest height, read with bilinear filtering.
+  // ---------------------------------------------------------------
+  buildProbes() {
+    const pw = this.w * 2, ph = this.h * 2;
+    this.probeBase = new Float32Array(pw * ph * 3);
+    this.probeLamp = new Float32Array(pw * ph * 3);
+    this.pw = pw; this.ph = ph;
+    for (let z = 0; z < ph; z++) for (let x = 0; x < pw; x++) {
+      const px = x + 0.5, pz = z + 0.5;
+      const i = (z * pw + x) * 3;
+      if (this.heightAt(px, pz) >= WALL_H) continue;
+      const a = this.lightAt(px, 1.1, pz, null, null, null, false, true);
+      const l = this.lightAt(px, 1.1, pz, null, null, null, true, false);
+      this.probeBase.set(a, i); this.probeLamp.set(l, i);
+    }
+  }
+  probe(x, z, withLamps = true, out = [0, 0, 0]) {
+    if (!this.probeBase) { out[0] = out[1] = out[2] = 1; return out; }
+    const fx = Math.max(0, Math.min(this.pw - 1.001, x - 0.5)), fz = Math.max(0, Math.min(this.ph - 1.001, z - 0.5));
+    const x0 = Math.floor(fx), z0 = Math.floor(fz), tx = fx - x0, tz = fz - z0;
+    for (let c = 0; c < 3; c++) {
+      let v = 0, wsum = 0;
+      for (const [dx, dz, w] of [[0, 0, (1 - tx) * (1 - tz)], [1, 0, tx * (1 - tz)], [0, 1, (1 - tx) * tz], [1, 1, tx * tz]]) {
+        const i = ((z0 + dz) * this.pw + x0 + dx) * 3 + c;
+        if (this.heightAt(x0 + dx + 0.5, z0 + dz + 0.5) >= WALL_H) continue;
+        v += (this.probeBase[i] + (withLamps ? this.probeLamp[i] : 0)) * w; wsum += w;
+      }
+      out[c] = wsum > 0 ? v / wsum : 0.4;
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------
+  //  Build all level meshes (with baked lighting)
+  // ---------------------------------------------------------------
+  build(T, onProgress) {
+    const group = new THREE.Group();
+    const builders = new Map();
+    const B = (key, map) => {
+      if (!builders.has(key)) builders.set(key, { b: new Builder(this), map });
+      return builders.get(key).b;
+    };
+    const floorTex = { tile: T.floorTile, wood: T.floorWood, carpet: T.floorCarpet, concrete: T.floorConcrete, grass: T.grass, asphalt: T.asphalt };
+    const W = this.w, H = this.h;
+    const idx = (x, z) => z * W + x;
+
+    // ---- floors & ceilings (greedy rectangles, subdivided every 1 m) ----
+    const rects = (pred) => {
+      const used = new Uint8Array(W * H), out = [];
+      for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+        if (used[idx(x, z)] || !pred(x, z)) continue;
+        let x1 = x;
+        while (x1 + 1 < W && !used[idx(x1 + 1, z)] && pred(x1 + 1, z) && x1 - x < 7) x1++;
+        let z1 = z;
+        outer: while (z1 + 1 < H && z1 - z < 7) {
+          for (let xx = x; xx <= x1; xx++) if (used[idx(xx, z1 + 1)] || !pred(xx, z1 + 1)) break outer;
+          z1++;
+        }
+        for (let zz = z; zz <= z1; zz++) for (let xx = x; xx <= x1; xx++) used[idx(xx, zz)] = 1;
+        out.push([x, z, x1, z1]);
       }
       return out;
     };
-
-    const kindPred = (k) => (x, z) => this.kinds[z * this.w + x] === k;
-
-    const addBoxes = (rects, h, mat, texSize, inset = 0) => {
-      const b = new BoxBuilder(texSize);
-      for (const [x0, z0, x1, z1] of rects) {
-        b.box(x0 * CELL + inset, 0, z0 * CELL + inset, (x1 + 1) * CELL - inset, h, (z1 + 1) * CELL - inset);
+    for (let fi = 0; fi < FLOOR_LIST.length; fi++) {
+      const f = FLOOR_LIST[fi];
+      const tsz = f === 'grass' || f === 'asphalt' ? 4 : 2;
+      const b = B('floor-' + f, floorTex[f]);
+      for (const [x0, z0, x1, z1] of rects((x, z) => this.floor[idx(x, z)] === fi && this.heights[idx(x, z)] === 0)) {
+        b.gridY(x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL, 0, false, tsz);
       }
-      const mesh = new THREE.Mesh(b.geometry(), mat);
-      group.add(mesh);
-      return mesh;
-    };
-
-    addBoxes(boxesOf(kindPred(K.WALL)), WALL_H, mats.wall, 4);
-    addBoxes(boxesOf(kindPred(K.PILLAR)), WALL_H, mats.pillar, 2);
-    // crates are drawn as individual boxes (no merging) so each looks like a crate
-    {
-      const b = new BoxBuilder(CELL);
-      for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
-        if (this.kinds[z * this.w + x] === K.CRATE) b.box(x * CELL, 0, z * CELL, (x + 1) * CELL, CRATE_H, (z + 1) * CELL, true);
-      }
-      group.add(new THREE.Mesh(b.geometry(), mats.crate));
     }
-    addBoxes(boxesOf(kindPred(K.HALF)), HALF_H, mats.half, 2);
-
-    // Floors
-    const notWall = (x, z) => this.kinds[z * this.w + x] !== K.WALL;
-    const isIn = (x, z) => notWall(x, z) && !this.outdoor[z * this.w + x];
-    const isOut = (x, z) => notWall(x, z) && this.outdoor[z * this.w + x];
-    const plane = (rects, y, mat, texSize, down) => {
-      const b = new BoxBuilder(texSize);
-      for (const [x0, z0, x1, z1] of rects) b.quadY(x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL, y, down);
-      const m = new THREE.Mesh(b.geometry(), mat);
-      group.add(m);
-      return m;
-    };
-    plane(boxesOf(isIn), 0, mats.floor, 2, false);
-    plane(boxesOf(isOut), 0, mats.grass, 4, false);
-    plane(boxesOf(isIn), CEIL_H, mats.ceiling, 4, true);
-
-    // Ceiling light panels (cheap: no real lights, just glowing quads)
+    onProgress?.(0.3);
     {
-      const b = new BoxBuilder(1);
-      for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
-        if (x % 3 === 1 && z % 3 === 1 && isIn(x, z)) {
-          const cx = (x + 0.5) * CELL, cz = (z + 0.5) * CELL;
-          b.quadY(cx - 0.7, cz - 0.35, cx + 0.7, cz + 0.35, CEIL_H - 0.02, true);
+      const b = B('ceiling', T.ceiling);
+      for (const [x0, z0, x1, z1] of rects((x, z) => !this.outdoor[idx(x, z)] && this.kinds[idx(x, z)] !== K.WALL)) {
+        b.gridY(x0 * CELL, z0 * CELL, (x1 + 1) * CELL, (z1 + 1) * CELL, CEIL_H, true, 2);
+      }
+    }
+    onProgress?.(0.45);
+
+    // ---- vertical faces of walls / pillars / shelves / counters ----
+    const trim = B('trim', null);
+    const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+      const i = idx(x, z);
+      const h = this.heights[i];
+      if (h <= 0) continue;
+      const kind = this.kinds[i];
+      for (const [dx, dz] of DIRS) {
+        const nxC = x + dx, nzC = z + dz;
+        if (!this.inBounds(nxC, nzC)) continue;
+        const nh = this.heights[idx(nxC, nzC)];
+        if (nh >= h) continue;
+        const nOut = this.outdoor[idx(nxC, nzC)];
+        const nFloor = FLOOR_LIST[this.floor[idx(nxC, nzC)]];
+        const top = Math.min(h, nOut ? WALL_H : CEIL_H);
+        let key, map, tsz = 2;
+        if (kind === K.WALL) {
+          if (nOut || nFloor === 'concrete') { key = 'wall-concrete'; map = T.wallConcrete; }
+          else { key = 'wall-painted'; map = T.wallPainted; }
+        } else if (kind === K.PILLAR) { key = 'pillar'; map = T.pillar; tsz = 6; }
+        else if (kind === K.SHELF) { key = 'shelf'; map = T.shelf; tsz = 2.2; }
+        else { key = 'counter'; map = T.counter; tsz = 1; }
+        // the face lies on the cell edge facing the neighbour
+        const ex = dx > 0 ? (x + 1) * CELL : dx < 0 ? x * CELL : null;
+        const ez = dz > 0 ? (z + 1) * CELL : dz < 0 ? z * CELL : null;
+        let a, c2;
+        if (ex !== null) { a = [ex, z * CELL]; c2 = [ex, (z + 1) * CELL]; if (dx > 0) [a, c2] = [c2, a]; }
+        else { a = [(x + 1) * CELL, ez]; c2 = [x * CELL, ez]; if (dz > 0) [a, c2] = [c2, a]; }
+        const isPillarOrShelf = kind !== K.WALL;
+        B(key, map).wall(a, c2, nh, top, dx, dz, tsz, kind === K.PILLAR ? 6 : 1);
+        // baseboard + crown trim along room walls (adds real depth)
+        if (kind === K.WALL && !nOut && nh === 0) {
+          trim.box(a, c2, dx, dz, 0, 0.14, 0.03, [0.32, 0.31, 0.3]);
+          trim.box(a, c2, dx, dz, CEIL_H - 0.12, CEIL_H, 0.05, [0.85, 0.84, 0.8]);
         }
+        if (kind === K.WALL && nOut) trim.box(a, c2, dx, dz, 0, 0.35, 0.06, [0.55, 0.54, 0.52]);
+        if (kind === K.COUNTER) trim.box(a, c2, dx, dz, h - 0.05, h, 0.05, [0.35, 0.24, 0.15]);
+        if (isPillarOrShelf && kind === K.PILLAR && nh === 0) trim.box(a, c2, dx, dz, 0, 0.25, 0.04, [0.4, 0.4, 0.4]);
       }
-      group.add(new THREE.Mesh(b.geometry(), mats.light));
+      // tops of low furniture
+      if (h < WALL_H) {
+        const key = kind === K.SHELF ? 'shelf-top' : 'counter';
+        B(key, kind === K.SHELF ? T.metal : T.counter).gridY(x * CELL, z * CELL, (x + 1) * CELL, (z + 1) * CELL, h, false, 2);
+      }
+    }
+    onProgress?.(0.85);
+
+    // ---- light fixtures ----
+    {
+      const fx = B('fixture', null);
+      const panel = new Builder(this);
+      for (const L of this.lights) {
+        fx.boxXZ(L.x - 0.72, L.z - 0.38, L.x + 0.72, L.z + 0.38, CEIL_H - 0.07, CEIL_H, [0.55, 0.55, 0.55]);
+        panel.flat(L.x - 0.64, L.z - 0.3, L.x + 0.64, L.z + 0.3, CEIL_H - 0.075);
+      }
+      const pm = new THREE.Mesh(panel.geometry(), new THREE.MeshBasicMaterial({ color: 0xfff6e2, toneMapped: false }));
+      group.add(pm);
     }
 
-    // Wall tops visible from the courtyard look nicer with a concrete trim
+    for (const [key, { b, map }] of builders) {
+      const mat = new THREE.MeshBasicMaterial({ map, vertexColors: true, side: key === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide });
+      const mesh = new THREE.Mesh(b.geometry(), mat);
+      mesh.name = key;
+      group.add(mesh);
+    }
+    onProgress?.(1);
     return group;
   }
 }
 
-// Builds box / quad geometry with world-space UVs so textures tile evenly.
-class BoxBuilder {
-  constructor(texSize) {
-    this.s = texSize; this.pos = []; this.nor = []; this.uv = []; this.idx = [];
+function hash2(x, z) {
+  let h = (x * 374761393 + z * 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+// Geometry builder: positions, normals, uvs and BAKED vertex colors
+class Builder {
+  constructor(map) { this.map = map; this.pos = []; this.nor = []; this.uv = []; this.col = []; this.idx = []; }
+  _v(x, y, z, nx, ny, nz, u, v, color, isWall) {
+    this.pos.push(x, y, z); this.nor.push(nx, ny, nz); this.uv.push(u, v);
+    const c = this.map.bakeColor(x, y, z, nx, ny, nz, isWall);
+    if (color) { c[0] *= color[0]; c[1] *= color[1]; c[2] *= color[2]; }
+    this.col.push(c[0], c[1], c[2]);
+    return this.pos.length / 3 - 1;
   }
-  _quad(p, n, uv) {
+  // horizontal grid (floor / ceiling / tops), 1 m subdivisions
+  gridY(x0, z0, x1, z1, y, down, tsz) {
+    const nx = Math.max(1, Math.round(x1 - x0)), nz = Math.max(1, Math.round(z1 - z0));
     const base = this.pos.length / 3;
-    for (let i = 0; i < 4; i++) {
-      this.pos.push(p[i][0], p[i][1], p[i][2]);
-      this.nor.push(n[0], n[1], n[2]);
-      this.uv.push(uv[i][0], uv[i][1]);
+    for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+      const x = x0 + (x1 - x0) * (i / nx), z = z0 + (z1 - z0) * (j / nz);
+      this._v(x, y, z, 0, down ? -1 : 1, 0, x / tsz, -z / tsz, null, false);
     }
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const a = base + j * (nx + 1) + i, b = a + 1, c = a + nx + 1, d = c + 1;
+      if (down) this.idx.push(a, b, d, a, d, c); else this.idx.push(a, c, d, a, d, b);
+    }
+  }
+  // vertical wall from point a to point c (seen from the outward normal side)
+  wall(a, c, y0, y1, nx, nz, tsz, vsz = 1) {
+    const len = Math.hypot(c[0] - a[0], c[1] - a[1]);
+    const cols = Math.max(1, Math.round(len)), rows = Math.max(1, Math.round(y1 - y0));
+    const base = this.pos.length / 3;
+    for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+      const t = i / cols, y = y0 + (y1 - y0) * (j / rows);
+      const x = a[0] + (c[0] - a[0]) * t, z = a[1] + (c[1] - a[1]) * t;
+      this._v(x, y, z, nx, 0, nz, (x * nz - z * nx) / tsz, y / (vsz === 6 ? 6 : tsz), null, true); // world-space u: textures line up across faces
+    }
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const p = base + j * (cols + 1) + i, q = p + 1, r = p + cols + 1, s = r + 1;
+      this.idx.push(p, q, s, p, s, r);
+    }
+  }
+  // thin strip sticking out of a wall face (baseboard, trim)
+  box(a, c, nx, nz, y0, y1, depth, color) {
+    const ox = nx * depth, oz = nz * depth;
+    const A = [a[0], a[1]], C = [c[0], c[1]], A2 = [a[0] + ox, a[1] + oz], C2 = [c[0] + ox, c[1] + oz];
+    const quad = (p, n) => {
+      const base = this.pos.length / 3;
+      for (const v of p) this._v(v[0], v[1], v[2], n[0], n[1], n[2], 0, 0, color, false);
+      this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    quad([[A2[0], y0, A2[1]], [C2[0], y0, C2[1]], [C2[0], y1, C2[1]], [A2[0], y1, A2[1]]], [nx, 0, nz]);
+    quad([[A2[0], y1, A2[1]], [C2[0], y1, C2[1]], [C[0], y1, C[1]], [A[0], y1, A[1]]], [0, 1, 0]);
+    quad([[A[0], y0, A[1]], [C[0], y0, C[1]], [C2[0], y0, C2[1]], [A2[0], y0, A2[1]]], [0, -1, 0]);
+  }
+  // small axis-aligned box (fixture housings)
+  boxXZ(x0, z0, x1, z1, y0, y1, color) {
+    const quad = (p, n) => {
+      const base = this.pos.length / 3;
+      for (const v of p) this._v(v[0], v[1], v[2], n[0], n[1], n[2], 0, 0, color, false);
+      this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    quad([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0]);
+    quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1]);
+    quad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1]);
+    quad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0]);
+    quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0]);
+  }
+  // unlit flat quad facing down (light panels)
+  flat(x0, z0, x1, z1, y) {
+    const base = this.pos.length / 3;
+    for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) { this.pos.push(x, y, z); this.nor.push(0, -1, 0); this.uv.push(0, 0); this.col.push(1, 1, 1); }
     this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  }
-  // perFace: UVs 0..1 per face (for crates), else world-space
-  box(x0, y0, z0, x1, y1, z1, perFace = false) {
-    const s = this.s;
-    const U = (a, b) => (perFace ? [a, b] : [a / s, b / s]);
-    const fx = (u0, u1, v0, v1) => perFace ? [[0, 0], [1, 0], [1, 1], [0, 1]] : [U(u0, v0), U(u1, v0), U(u1, v1), U(u0, v1)];
-    // +X
-    this._quad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0], fx(z1, z0, y0, y1).map(([a, b]) => perFace ? [a, b] : [-a, b]));
-    // -X
-    this._quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0], fx(z0, z1, y0, y1));
-    // +Z
-    this._quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], fx(x0, x1, y0, y1));
-    // -Z
-    this._quad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1], fx(x1, x0, y0, y1).map(([a, b]) => perFace ? [a, b] : [-a, b]));
-    // +Y (top)
-    this._quad([[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], [0, 1, 0], fx(x0, x1, z1, z0).map(([a, b]) => perFace ? [a, b] : [a, -b]));
-  }
-  quadY(x0, z0, x1, z1, y, down) {
-    const s = this.s;
-    if (!down) {
-      this._quad([[x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0]], [0, 1, 0],
-        [[x0 / s, -z1 / s], [x1 / s, -z1 / s], [x1 / s, -z0 / s], [x0 / s, -z0 / s]]);
-    } else {
-      this._quad([[x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1]], [0, -1, 0],
-        [[x0 / s, z0 / s], [x1 / s, z0 / s], [x1 / s, z1 / s], [x0 / s, z1 / s]]);
-    }
   }
   geometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.setIndex(this.idx);
     g.computeBoundingSphere();
     return g;

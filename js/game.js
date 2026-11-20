@@ -10,8 +10,9 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { CONFIG } from './config.js';
 import { clamp, shuffle, pick, dirFromAngles, forwardX, forwardZ, turnToward, textColor, wrapAngle, DEG, rand } from './util.js';
-import { moveCharacter, separateCharacters, raycastMap, rayVsCharacter, hasLOS, groundHeight } from './physics.js';
-import { CharacterModel, ViewModel, makeKnifeMesh, makeGunMesh } from './character.js';
+import { moveCharacter, separateCharacters, raycastMap, rayVsCharacter, hasLOS, groundHeight, pushOutOfProps } from './physics.js';
+import { CharacterModel, ViewModel, makeKnifeMesh, makeGunMesh, randomLook, sanitizeLook } from './character.js';
+import { PropSystem } from './props.js';
 import { Ragdoll } from './ragdoll.js';
 import { Audio } from './audio.js';
 import { initBrain, updateBots, botsOnKill, botsOnShot } from './bots.js';
@@ -24,9 +25,9 @@ const FLASH_GEO = new THREE.SphereGeometry(0.12, 8, 6);
 // Flags packed into snapshots
 const F_ALIVE = 1, F_KNIFE = 2, F_GUN = 4, F_GROUND = 8, F_RUN = 16;
 
-export function newChar(id, nick, isBot) {
+export function newChar(id, nick, isBot, look) {
   return {
-    id, nick, isBot, cid: null,
+    id, nick, isBot, cid: null, look: sanitizeLook(look),
     bname: '', color: 0x888888,
     x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0,
     onGround: true, speed: 0, running: false, stamina: P.STAMINA_MAX, exhausted: false,
@@ -89,9 +90,14 @@ export class Game {
     this.cidToId = new Map();
     this.botNames = shuffle(CONFIG.BOTS.NAMES.slice());
 
-    this.viewModel = new ViewModel(this.camera);
+    this.settings = o.settings || {};
     this.root = new THREE.Group();
     this.scene.add(this.root);
+    this.viewModel = new ViewModel(this.camera, this.T);
+    this.props = new PropSystem(this.map, this.root, this.T, this.isHost);
+    this.camDist = this.settings.camDist || 0;
+    this.trails = new Map();     // flying knife wind trails
+    this.propSndT = 0;
     this.camera.rotation.order = 'YXZ';
 
     if (this.net) {
@@ -109,7 +115,7 @@ export class Game {
     }
 
     if (this.isHost) {
-      const me = this.addChar(newChar(this.nextId++, o.myName, false));
+      const me = this.addChar(newChar(this.nextId++, o.myName, false, o.myLook));
       this.localId = me.id;
       this.ensureBots();
       this.phase = 'waiting';
@@ -125,7 +131,7 @@ export class Game {
   //  Characters
   // ---------------------------------------------------------------
   addChar(c) {
-    c.model = new CharacterModel(this.T);
+    c.model = new CharacterModel(this.T, c.look);
     c.model.setColor(c.color);
     c.model.addTo(this.root);
     c.model.setVisible(false);
@@ -145,7 +151,7 @@ export class Game {
   }
 
   roster() {
-    return [...this.chars.values()].map((c) => ({ id: c.id, nick: c.nick, bname: c.bname, color: c.color, bot: c.isBot ? 1 : 0 }));
+    return [...this.chars.values()].map((c) => ({ id: c.id, nick: c.nick, bname: c.bname, color: c.color, bot: c.isBot ? 1 : 0, ap: c.look }));
   }
 
   // ---------------------------------------------------------------
@@ -162,7 +168,7 @@ export class Game {
     while (bots.length > want) { const b = bots.pop(); this.removeChar(b.id); }
     while (bots.length < want) {
       const name = this.botNames[this.nextId % this.botNames.length];
-      const b = this.addChar(newChar(this.nextId++, name, true));
+      const b = this.addChar(newChar(this.nextId++, name, true, randomLook()));
       bots.push(b);
     }
   }
@@ -198,6 +204,7 @@ export class Game {
     this.items.clear();
     this.corpses = [];
     this.craftedBy = null;
+    this.props.reset();
     this.partsCollected.clear();
 
     // gun parts
@@ -277,6 +284,15 @@ export class Game {
     updateBots(this, dt);
     // Bots get pushed by everyone (humans control their own position)
     separateCharacters([...this.chars.values()], this.map, (c) => c.isBot);
+    this.props.step(dt, [...this.chars.values()]);
+    // prop impact sounds (throttled)
+    this.propSndT -= dt;
+    for (const e of this.props.events) {
+      if (this.propSndT > 0) break;
+      this.propSndT = 0.06;
+      this.emit({ e: 'prop', p: [r2(e.p.x), r2(e.p.y + 0.3), r2(e.p.z)], s: e.p.def.sound, v: r2(Math.min(1, e.s / 8)) });
+    }
+    this.props.events.length = 0;
 
     this.hostItems(dt);
     this.hostPickups();
@@ -302,10 +318,11 @@ export class Game {
       cs.push([c.id, r2(c.x), r2(c.y), r2(c.z), r2(c.yaw), r2(c.pitch), f, r2(c.speed)]);
     }
     const it = [...this.items.values()].map((i) => [i.id, i.type === 'gun' ? 0 : 1, r2(i.x), r2(i.y), r2(i.z), i.flying ? 1 : 0]);
+    const pr = this.props.snapshot(1 / CONFIG.NET.SNAPSHOT_RATE);
     for (const c of this.humans()) {
       if (c.cid == null) continue;
       this.net.send(c.cid, {
-        t: 'snap', ph: this.phase, tl: r2(this.timeLeft), c: cs, it,
+        t: 'snap', ph: this.phase, tl: r2(this.timeLeft), c: cs, it, pr,
         me: { k: c.hasKnife ? 1 : 0, g: c.hasGun ? 1 : 0, eq: c.equipped ? 1 : 0, cd: r2(Math.max(0, c.attackCd)), al: c.alive ? 1 : 0 },
       });
     }
@@ -322,14 +339,14 @@ export class Game {
       if (this.cidToId.has(cid)) return;
       if (this.humans().length >= CONFIG.SERVER.MAX_HUMANS) { this.net.send(cid, { t: 'reject', reason: 'Server is full' }); return; }
       const nick = String(m.name || 'Player').slice(0, 20);
-      const c = this.addChar(newChar(this.nextId++, nick, false));
+      const c = this.addChar(newChar(this.nextId++, nick, false, m.ap));
       c.cid = cid;
       this.cidToId.set(cid, c.id);
       // the new player spectates until next round; a bot leaves at round end
       c.bname = '???'; c.color = 0x777777;
       this.net.send(cid, {
         t: 'welcome', id: c.id, roster: this.roster(), phase: this.phase, tl: r2(this.timeLeft),
-        server: this.serverLabel, code: this.code,
+        server: this.serverLabel, code: this.code, props: this.props.fullState(),
       });
       this.emit({ e: 'roster', list: this.roster() });
       this.emit({ e: 'msg', text: `${nick} joined the server`, color: '#9ad' });
@@ -436,14 +453,20 @@ export class Game {
       const t = rayVsCharacter(ox, oy, oz, d.x, d.y, d.z, o);
       if (t >= 0 && t < ht) { ht = t; hit = o; }
     }
+    // furniture blocks bullets (and gets knocked around)
+    const ph = this.props.raycast(ox, oy, oz, d.x, d.y, d.z, ht);
+    if (ph) {
+      hit = null; ht = ph.t;
+      this.props.impulse(ph.prop, d.x * 16, 3, d.z * 16, (Math.random() - 0.5) * 10);
+    }
     this.emit({ e: 'shot', id: c.id, f: [r2(ox), r2(oy - 0.15), r2(oz)], t: [r2(ox + d.x * ht), r2(oy + d.y * ht), r2(oz + d.z * ht)] });
     botsOnShot(this, c, hit);
     if (hit) {
       this.kill(hit, c, 'gun', { x: d.x * 7, y: d.y * 7 + 1, z: d.z * 7 });
-      if (W.INNOCENT_KILL_PENALTY && c.role !== 'murderer' && hit.role !== 'murderer' && c.alive) {
-        this.dropGun(c);
-        c.gunBanned = true;
-        this.emit({ e: 'msg', text: 'You shot an innocent bystander! You dropped your gun.', color: '#f55', big: 1 }, [c.id]);
+      // shooting an innocent bystander costs the shooter's life (and the gun drops)
+      if (W.SHERIFF_DIES_ON_INNOCENT_KILL && c.role !== 'murderer' && hit.role !== 'murderer' && c.alive) {
+        this.emit({ e: 'msg', text: 'You shot an innocent bystander... and paid with your life.', color: '#f55', big: 1 }, [c.id]);
+        this.kill(c, null, 'penalty', { x: -d.x * 1.5, y: 0.5, z: -d.z * 1.5 });
       }
     }
   }
@@ -495,6 +518,16 @@ export class Game {
           const t = rayVsCharacter(it.x, it.y, it.z, dx, dy, dz, o, 0.4);
           if (t >= 0 && t <= ht) { ht = t; hit = o; }
         }
+        const ph = this.props.raycast(it.x, it.y, it.z, dx, dy, dz, ht);
+        if (ph) {
+          hit = null;
+          this.props.impulse(ph.prop, dx * 4, 1, dz * 4, 3);
+          it.x += dx * Math.max(0, ph.t - 0.1); it.y += dy * Math.max(0, ph.t - 0.1); it.z += dz * Math.max(0, ph.t - 0.1);
+          it.flying = false;
+          it.y = groundHeight(this.map, it.x, it.z, 0.1, it.y + 0.3) + 0.05;
+          this.emit({ e: 'clink', p: [r2(it.x), r2(it.y), r2(it.z)] });
+          break;
+        }
         if (hit) {
           const owner = this.chars.get(it.owner);
           this.kill(hit, owner || null, 'knife', { x: dx * 5, y: 1, z: dz * 5 });
@@ -523,10 +556,10 @@ export class Game {
         if (it.flying) continue;
         const d = Math.hypot(it.x - c.x, it.z - c.z);
         if (Math.abs(it.y - c.y) > 1.5) continue;
-        if (it.type === 'gun' && d < W.GUN_PICKUP_RADIUS && c.role !== 'murderer' && !c.hasGun && !c.gunBanned) {
+        if (it.type === 'gun' && d < W.GUN_PICKUP_RADIUS && c.role !== 'murderer' && !c.hasGun) {
           this.items.delete(it.id);
           c.hasGun = true; c.equipped = true;
-          this.emit({ e: 'msg', text: 'You picked up a revolver!', color: '#6af', snd: 'pickup' }, [c.id]);
+          this.emit({ e: 'msg', text: 'You picked up the revolver — you are the Sheriff now!', color: '#6af', snd: 'gun', big: 1 }, [c.id]);
           break;
         }
         if (it.type === 'knife' && d < W.KNIFE_PICKUP_RADIUS && c.role === 'murderer' && !c.hasKnife) {
@@ -537,7 +570,7 @@ export class Game {
         }
       }
       // gun parts (only one crafted revolver can exist at a time)
-      if (this.craftedBy != null || c.role === 'murderer' || c.hasGun || c.gunBanned) continue;
+      if (this.craftedBy != null || c.role === 'murderer' || c.hasGun) continue;
       const set = this.partsCollected.get(c.id) || new Set();
       this.partsCollected.set(c.id, set);
       for (let k = 0; k < this.partSpots.length; k++) {
@@ -549,7 +582,7 @@ export class Game {
             c.hasGun = true; c.equipped = true;
             this.craftedBy = c.id;
             set.clear();
-            this.emit({ e: 'msg', text: 'You assembled a revolver!', color: '#6af', snd: 'gun', big: 1 }, [c.id]);
+            this.emit({ e: 'msg', text: 'You built a revolver — you are the Sheriff now!', color: '#6af', snd: 'gun', big: 1 }, [c.id]);
             for (const o of this.humans()) if (o.id !== c.id) this.emit({ e: 'msg', text: 'Someone built a revolver. The gun parts vanished.', color: '#ccc' }, [o.id]);
             this.sendPartsToAll();
           } else if (!c.isBot) {
@@ -571,6 +604,7 @@ export class Game {
     this.code = w.code || null;
     this.syncRoster(w.roster);
     this.phase = w.phase; this.timeLeft = w.tl;
+    if (w.props) this.props.applyState(w.props);
   }
 
   syncRoster(list) {
@@ -579,7 +613,7 @@ export class Game {
       seen.add(r.id);
       let c = this.chars.get(r.id);
       if (!c) {
-        c = newChar(r.id, r.nick, !!r.bot);
+        c = newChar(r.id, r.nick, !!r.bot, r.ap);
         this.addChar(c);
       }
       c.nick = r.nick; c.bname = r.bname; c.isBot = !!r.bot;
@@ -618,6 +652,7 @@ export class Game {
         it.x = x; it.y = y; it.z = z; it.flying = !!fl;
       }
       for (const id of [...this.items.keys()]) if (!seen.has(id)) this.items.delete(id);
+      if (m.pr) this.props.applyState(m.pr);
       return;
     }
     if (m.t === 'ev') { this.applyEvent(m.e); return; }
@@ -659,7 +694,7 @@ export class Game {
         if (me) me.role = ev.role;
         const R = {
           murderer: ['You are the Murderer', 'Kill everyone. Don\'t get caught.', '#e33'],
-          sheriff: ['You are a Bystander', 'with a secret weapon. Find and kill the murderer.', '#4af'],
+          sheriff: ['You are the Sheriff', 'You have a revolver. Find the murderer and shoot them — but never an innocent.', '#4af'],
           innocent: ['You are a Bystander', 'There is a murderer among us. Collect gun parts, stay alive.', '#4af'],
         }[ev.role];
         if (R) ui.bigMessage(R[0], R[1], R[2], 4.5);
@@ -697,7 +732,7 @@ export class Game {
         if (ev.cause !== 'suicide' && Math.random() < 0.6) Audio.scream(pos);
         if (c.id === this.localId) {
           this.deathT = 0;
-          this.ui.toast(ev.cause === 'suicide' ? 'You are now spectating. Press X again for the menu.' : 'You died!', '#f66', 3);
+          this.ui.toast(ev.cause === 'suicide' ? 'You are now spectating. Press X again for the menu.' : 'You died! Press X for the main menu.', '#f66', 3);
         }
         break;
       }
@@ -725,6 +760,7 @@ export class Game {
         break;
       }
       case 'clink': Audio.clink({ x: ev.p[0], y: ev.p[1], z: ev.p[2] }); break;
+      case 'prop': Audio.prop({ x: ev.p[0], y: ev.p[1], z: ev.p[2] }, ev.s, ev.v); break;
       case 'msg':
         if (ev.big) ui.bigMessage(ev.text, '', ev.color || '#fff', 2.5);
         else ui.toast(ev.text, ev.color || '#fff');
@@ -793,31 +829,105 @@ export class Game {
     for (const [id, it] of this.items) {
       let m = this.itemMeshes.get(id);
       if (!m) {
-        m = it.type === 'gun' ? makeGunMesh() : makeKnifeMesh();
-        m.scale.setScalar(1.6);
+        const inner = it.type === 'gun' ? makeGunMesh() : makeKnifeMesh();
+        inner.scale.setScalar(1.6);
+        m = new THREE.Group(); m.add(inner); m.userData.inner = inner;
+        m.rotation.order = 'YXZ';
         this.root.add(m);
         this.itemMeshes.set(id, m);
-        m.userData.rx = it.x; m.userData.ry = it.y; m.userData.rz = it.z;
+        m.userData.rx = it.x; m.userData.ry = it.y; m.userData.rz = it.z; m.userData.spin = 0;
       }
       const u = m.userData;
       const k = this.isHost ? 1 : Math.min(1, dt * 15);
+      const px = u.rx, py = u.ry, pz = u.rz;
       u.rx += (it.x - u.rx) * k; u.ry += (it.y - u.ry) * k; u.rz += (it.z - u.rz) * k;
       m.position.set(u.rx, u.ry + (it.flying ? 0 : 0.04), u.rz);
-      if (it.flying) { m.rotation.x -= dt * 25; }
-      else { m.rotation.set(Math.PI / 2, 0, 0); m.rotation.z = id; }
+      if (it.flying) {
+        // end-over-end spin along the flight direction (vertical spin)
+        const vx = u.rx - px, vz = u.rz - pz;
+        if (vx * vx + vz * vz > 1e-6) m.rotation.y = Math.atan2(-vx, -vz);
+        u.spin -= dt * 28;
+        m.rotation.x = u.spin; m.rotation.z = 0;
+        this.updateTrail(id, u.rx, u.ry, u.rz, true);
+      } else {
+        m.rotation.set(Math.PI / 2, (id * 1.7) % 6.28, 0);
+        this.updateTrail(id, u.rx, u.ry, u.rz, false);
+      }
     }
     for (const [id, m] of this.itemMeshes) {
-      if (!this.items.has(id)) { this.root.remove(m); this.itemMeshes.delete(id); }
+      if (!this.items.has(id)) { this.root.remove(m); this.itemMeshes.delete(id); this.updateTrail(id, 0, 0, 0, false, true); }
     }
+    for (const [id, tr] of this.trails) if (!this.items.has(id) || !this.items.get(id).flying) this.updateTrail(id, 0, 0, 0, false);
+  }
+
+  // Wind trail: a fading ribbon following the flying knife
+  updateTrail(id, x, y, z, flying, kill = false) {
+    let tr = this.trails.get(id);
+    if (!tr && flying) {
+      const N = 16;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 2 * 3), 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(N * 2 * 4), 4));
+      const idx = [];
+      for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      geo.setIndex(idx);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+      mesh.frustumCulled = false;
+      this.root.add(mesh);
+      tr = { mesh, pts: [], N, fade: 1 };
+      this.trails.set(id, tr);
+    }
+    if (!tr) return;
+    if (kill) { this.root.remove(tr.mesh); tr.mesh.geometry.dispose(); tr.mesh.material.dispose(); this.trails.delete(id); return; }
+    if (flying) { tr.pts.unshift([x, y, z]); tr.fade = 1; } else tr.fade -= 0.05;
+    if (tr.pts.length > tr.N) tr.pts.length = tr.N;
+    if (tr.fade <= 0) { this.updateTrail(id, 0, 0, 0, false, true); return; }
+    const pos = tr.mesh.geometry.attributes.position.array, col = tr.mesh.geometry.attributes.color.array;
+    for (let i = 0; i < tr.N; i++) {
+      const p = tr.pts[Math.min(i, tr.pts.length - 1)] || [x, y, z];
+      const t = i / (tr.N - 1), w = 0.07 * (1 - t);
+      pos.set([p[0], p[1] + w, p[2], p[0], p[1] - w, p[2]], i * 6);
+      const a = (1 - t) * 0.55 * tr.fade;
+      col.set([0.85, 0.9, 1, a, 0.85, 0.9, 1, a], i * 8);
+    }
+    tr.mesh.geometry.attributes.position.needsUpdate = true;
+    tr.mesh.geometry.attributes.color.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------
   //  LOCAL PLAYER
   // ---------------------------------------------------------------
+  thirdPerson() { return this.camDist > 0.25; }
+
+  // Direction the player is aiming. In third person we aim where the
+  // camera's crosshair points, so shots land where you look.
+  aimAngles() {
+    const me = this.me;
+    if (!this.thirdPerson() || !this._camPos) return { yaw: me.yaw, pitch: me.pitch };
+    const cp = this._camPos, d = dirFromAngles(me.yaw, me.pitch);
+    let t = raycastMap(this.map, cp.x, cp.y, cp.z, d.x, d.y, d.z, 90);
+    for (const c of this.chars.values()) {
+      if (c === me || !c.alive) continue;
+      const tc = rayVsCharacter(cp.x, cp.y, cp.z, d.x, d.y, d.z, { x: c.rx, y: c.ry, z: c.rz });
+      if (tc >= 0 && tc < t) t = tc;
+    }
+    const tx = cp.x + d.x * t, ty = cp.y + d.y * t, tz = cp.z + d.z * t;
+    const ex = me.x, ey = me.y + P.EYE, ez = me.z;
+    const dx = tx - ex, dy = ty - ey, dz = tz - ez;
+    return { yaw: Math.atan2(-dx, -dz), pitch: Math.atan2(dy, Math.hypot(dx, dz)) };
+  }
+
   localAction(a) {
     const me = this.me;
-    if (this.isHost) { this.hostAction(me, a); return; }
-    this.net?.send({ t: 'act', a, yw: r2(me.yaw), pt: r2(me.pitch) });
+    const aim = (a === 'attack' || a === 'throw') ? this.aimAngles() : { yaw: me.yaw, pitch: me.pitch };
+    if (this.isHost) {
+      const y = me.yaw, pt = me.pitch;
+      me.yaw = aim.yaw; me.pitch = aim.pitch;
+      this.hostAction(me, a);
+      if (me.alive) { me.yaw = y; me.pitch = pt; }
+      return;
+    }
+    this.net?.send({ t: 'act', a, yw: r2(aim.yaw), pt: r2(aim.pitch) });
   }
 
   updateLocal(dt, inp) {
@@ -831,6 +941,10 @@ export class Game {
     }
     if (inp.score) { this.scoreOpen = !this.scoreOpen || !this.ui.isTouch; this.ui.showScoreboard(this.scoreOpen, this); }
     if (inp.scoreUp && !this.ui.isTouch) { this.scoreOpen = false; this.ui.showScoreboard(false, this); }
+    // camera zoom (mouse wheel, +/- buttons, V toggles)
+    if (inp.zoom) this.camDist = clamp(this.camDist + inp.zoom, 0, 5);
+    if (inp.toggleView) { if (this.camDist > 0.25) { this._lastDist = this.camDist; this.camDist = 0; } else this.camDist = this._lastDist || 2.5; }
+    if (this.camDist < 0.25 && inp.zoom < 0) this.camDist = 0;
 
     me.yaw = wrapAngle(me.yaw - inp.lookDX);
     me.pitch = clamp(me.pitch - inp.lookDY, -1.5, 1.5);
@@ -848,13 +962,14 @@ export class Game {
       else if (this.phase === 'play' && this.localGunCd <= 0) {
         if (w === 1) {
           this.localGunCd = W.KNIFE_COOLDOWN;
-          this.viewModel.swing(); Audio.swing(null);
+          this.viewModel.swing(); me.model.swing(); Audio.swing(null);
           this.localAction('attack');
         } else {
           this.localGunCd = W.GUN_COOLDOWN;
           this.lastLocalShot = performance.now();
-          this.viewModel.recoil();
+          this.viewModel.recoil(); me.model.recoil();
           Audio.gunshot(null);
+          this.shake = 0.25;
           this.localAction('attack');
         }
       }
@@ -867,10 +982,10 @@ export class Game {
     const mx = fx * inp.fwd + rx * inp.strafe, mz = fz * inp.fwd + rz * inp.strafe;
     const wasGround = me.onGround;
     moveCharacter(me, { mx, mz, run: inp.run, jump: inp.jump }, dt, this.map);
-    if (me.landed > 7) Audio.land(null);
-    if (wasGround && !me.onGround && me.vy > 0) Audio.step(null, 0.2);
+    if (me.landed > 5) { Audio.land(null, me.landed); this.shake = Math.min(0.3, me.landed * 0.02); }
+    if (wasGround && !me.onGround && me.vy > 0) Audio.jump(null);
 
-    // don't walk through other people
+    // don't walk through other people or furniture (soft, so the host can push props)
     for (const o of this.chars.values()) {
       if (o === me || !o.alive) continue;
       const dx = me.x - o.rx, dz = me.z - o.rz;
@@ -879,6 +994,7 @@ export class Game {
         me.x += (dx / d) * (min - d); me.z += (dz / d) * (min - d);
       }
     }
+    pushOutOfProps(me, this.props.list, 0.35);
 
     // client: send my state to the host
     if (!this.isHost && this.net) {
@@ -909,6 +1025,7 @@ export class Game {
     this.updateLocal(dt, inp);
     if (this.ended) return;
     if (this.isHost) this.hostTick(dt);
+    const lampsDyn = (this.settings.dynLights || 0) > 0;
 
     // smooth remote characters & animate everyone
     const me = this.me;
@@ -925,24 +1042,38 @@ export class Game {
       if (this.isHost) c.weaponVis = weaponOf(c);
       else if (c === me) c.weaponVis = weaponOf(c);
 
-      const showModel = c.alive && !(c === me && this.firstPerson());
+      const showModel = c.alive && !(c === me && !this.ownBodyVisible());
       c.model.setVisible(showModel);
       if (c.alive) {
         const gy = groundHeight(this.map, c.rx, c.rz, 0.2, c.ry + 0.1);
         c.model.update(dt, { x: c.rx, y: c.ry, z: c.rz, yaw: c.ryaw, pitch: c.rpitch, speed: c.rspeed, onGround: c.rground, weapon: c.weaponVis }, gy);
+        // lighting: tint by the light probe at this spot (indoor lamps, shade, sun)
+        c.model.lightT -= dt;
+        if (c.model.lightT <= 0) {
+          c.model.lightT = 0.15;
+          const l = this.map.probe(c.rx, c.rz, !lampsDyn, this._probe || (this._probe = [0, 0, 0]));
+          const tgt = c.model._tgt || (c.model._tgt = [l[0], l[1], l[2]]);
+          tgt[0] = l[0]; tgt[1] = l[1]; tgt[2] = l[2];
+        }
+        const tl = c.model._tgt;
+        if (tl) {
+          const L = c.model.light, kk = Math.min(1, dt * 6);
+          c.model.setLight(L[0] + (tl[0] - L[0]) * kk, L[1] + (tl[1] - L[1]) * kk, L[2] + (tl[2] - L[2]) * kk);
+        }
         // footsteps (you can hear people coming)
         if (c.rground && c.rspeed > 1) {
           c.stepAcc += c.rspeed * dt;
-          const stride = c.rspeed > 5 ? 2.6 : 2.0;
+          const stride = c.rspeed > 5 ? 2.5 : 1.9;
           if (c.stepAcc > stride) {
             c.stepAcc = 0;
-            Audio.step(c === me ? null : { x: c.rx, y: c.ry, z: c.rz }, c.rspeed > 5 ? 0.3 : 0.16);
+            Audio.step(c === me ? null : { x: c.rx, y: c.ry, z: c.rz }, c.rspeed > 5 ? 1 : 0.6, this.map.floorTypeAt(c.rx, c.rz), this.settings.footVol ?? 1);
           }
         }
       }
     }
 
     for (const rd of this.ragdolls.values()) rd.update(dt);
+    this.props.render(dt, lampsDyn);
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];
       t.t -= dt;
@@ -964,17 +1095,40 @@ export class Game {
     this.updateHud(dt);
   }
 
-  firstPerson() { const me = this.me; return me && me.alive; }
+  // own body is drawn in third person (only on this screen; others always see you)
+  ownBodyVisible() { return this.thirdPerson() && (this._camActualDist ?? 9) > 0.55; }
+  firstPerson() { const me = this.me; return me && me.alive && !this.thirdPerson(); }
 
   updateCamera(dt) {
     const cam = this.camera, me = this.me;
     if (!me) return;
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
+    const sh = (this.settings.shake !== false ? this.shake || 0 : 0);
     if (me.alive) {
-      const bob = me.onGround ? Math.sin(this.time * 9) * 0.035 * Math.min(1, me.speed / 4) : 0;
-      cam.position.set(me.x, me.y + P.EYE + bob, me.z);
-      cam.rotation.set(me.pitch, me.yaw, 0);
-      this.viewModel.setColor(me.color, me.model.skinColor);
-      this.viewModel.update(dt, weaponOf(me), me.onGround ? me.speed : 0, true);
+      const bobOn = this.settings.viewBob !== false;
+      const bob = bobOn && me.onGround ? Math.sin(this.time * 9) * 0.035 * Math.min(1, me.speed / 4) : 0;
+      const ex = me.x, ey = me.y + P.EYE + bob, ez = me.z;
+      if (this.thirdPerson()) {
+        // over-the-shoulder camera, pulled in when a wall is in the way
+        const d = dirFromAngles(me.yaw, me.pitch);
+        const rx = Math.cos(me.yaw), rz = -Math.sin(me.yaw);
+        const side = 0.38 * Math.min(1, this.camDist / 1.5);
+        const px = ex + rx * side, py = ey + 0.12, pz = ez + rz * side;
+        let dist = this.camDist;
+        const sideHit = raycastMap(this.map, ex, ey, ez, rx, 0, rz, side + 0.2);
+        const spx = sideHit < side + 0.2 ? ex + rx * Math.max(0, sideHit - 0.2) : px, spz = sideHit < side + 0.2 ? ez + rz * Math.max(0, sideHit - 0.2) : pz;
+        const hit = raycastMap(this.map, spx, py, spz, -d.x, -d.y, -d.z, dist + 0.3);
+        dist = Math.max(0.1, Math.min(dist, hit - 0.25));
+        this._camActualDist = dist;
+        cam.position.set(spx - d.x * dist, py - d.y * dist, spz - d.z * dist);
+      } else {
+        this._camActualDist = 0;
+        cam.position.set(ex, ey, ez);
+      }
+      cam.rotation.set(me.pitch + (Math.random() - 0.5) * sh * 0.05, me.yaw + (Math.random() - 0.5) * sh * 0.05, 0);
+      this._camPos = cam.position;
+      this.viewModel.setLook(me.look, me.color, Math.min(1.4, me.model.light[1]));
+      this.viewModel.update(dt, weaponOf(me), me.onGround ? me.speed : 0, !this.thirdPerson());
     } else {
       this.viewModel.update(dt, 0, 0, false);
       this.deathT += dt;
@@ -989,21 +1143,19 @@ export class Game {
         if (s && s.alive) target = { x: s.rx, y: s.ry, z: s.rz, c: s };
       }
       if (target) {
-        // orbit camera behind target, pulled in if a wall is in the way
         const yaw = me.yaw, pitch = clamp(me.pitch, -1.2, 0.6);
         const d = dirFromAngles(yaw, pitch);
         const hx = target.x, hy = target.y + 1.6, hz = target.z;
-        let dist = 3.2;
+        let dist = Math.max(2, this.camDist || 3.2);
         const hit = raycastMap(this.map, hx, hy, hz, -d.x, -d.y, -d.z, dist + 0.3);
         dist = Math.max(0.4, Math.min(dist, hit - 0.3));
         cam.position.set(hx - d.x * dist, hy - d.y * dist, hz - d.z * dist);
         cam.rotation.set(pitch, yaw, 0);
       } else {
-        // nobody to watch: slow overview of the map
         const c = this.map.center();
         const a = this.time * 0.1;
-        cam.position.set(c.x + Math.cos(a) * 22, 18, c.z + Math.sin(a) * 22);
-        cam.lookAt(c.x, 0, c.z);
+        cam.position.set(c.x + Math.cos(a) * 12, 4, c.z + Math.sin(a) * 12);
+        cam.lookAt(c.x, 1, c.z);
         cam.rotation.order = 'YXZ';
       }
     }
@@ -1014,23 +1166,23 @@ export class Game {
   updateHud(dt) {
     const me = this.me;
     if (!me) return;
-    // who am I looking at?
+    // who am I looking at? (ray from the camera through the crosshair)
     let look = null;
     if (me.alive) {
+      const cp = this.camera.position;
       const d = dirFromAngles(me.yaw, me.pitch);
-      const ox = me.x, oy = me.y + P.EYE, oz = me.z;
-      const wall = raycastMap(this.map, ox, oy, oz, d.x, d.y, d.z, 14);
+      const wall = raycastMap(this.map, cp.x, cp.y, cp.z, d.x, d.y, d.z, 14 + (this._camActualDist || 0));
       let bt = wall;
       for (const c of this.chars.values()) {
         if (c === me || !c.alive) continue;
-        const t = rayVsCharacter(ox, oy, oz, d.x, d.y, d.z, { x: c.rx, y: c.ry, z: c.rz }, 0.4);
+        const t = rayVsCharacter(cp.x, cp.y, cp.z, d.x, d.y, d.z, { x: c.rx, y: c.ry, z: c.rz }, 0.4);
         if (t >= 0 && t < bt) { bt = t; look = c; }
       }
       if (!look) {
         for (const rd of this.ragdolls.values()) {
           const c = rd.center;
-          const t = rayVsCharacter(ox, oy, oz, d.x, d.y, d.z, { x: c.x, y: c.y - 0.5, z: c.z }, 0.6);
-          if (t >= 0 && t < Math.min(bt, 6)) { look = { bname: 'Dead body', color: 0x999999, corpse: true }; break; }
+          const t = rayVsCharacter(cp.x, cp.y, cp.z, d.x, d.y, d.z, { x: c.x, y: c.y - 0.5, z: c.z }, 0.6);
+          if (t >= 0 && t < Math.min(bt, 6 + (this._camActualDist || 0))) { look = { bname: 'Dead body', color: 0x999999, corpse: true }; break; }
         }
       }
     }
@@ -1040,7 +1192,7 @@ export class Game {
       look, spec, weapon: weaponOf(me), hasKnife: me.hasKnife, hasGun: me.hasGun,
       parts: this.partsVisible && this.myRole !== 'murderer' && !me.hasGun ? this.myParts.size : -1,
       server: this.serverLabel, code: this.code, players: this.chars.size,
-      deathT: this.deathT,
+      deathT: this.deathT, third: this.thirdPerson(),
     });
   }
 
@@ -1060,6 +1212,7 @@ export class Game {
   }
 
   dispose() {
+    for (const id of [...this.trails.keys()]) this.updateTrail(id, 0, 0, 0, false, true);
     for (const id of [...this.chars.keys()]) this.removeChar(id);
     for (const rd of this.ragdolls.values()) rd.dispose();
     this.ragdolls.clear();

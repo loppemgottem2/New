@@ -27,6 +27,8 @@ export class Input {
     this.invertY = false;
     this.locked = false;
     this.isTouch = isTouchDevice();
+    this.zoom = 0;
+    this.lefty = false;     // left-handed: joystick on the right
 
     // ---------- keyboard ----------
     window.addEventListener('keydown', (e) => {
@@ -41,6 +43,8 @@ export class Input {
         if (k === 'KeyX') this.press('x');
         if (k === 'KeyF' || k === 'KeyE') this.press('next');
         if (k === 'Tab') this.press('score');
+        if (k === 'KeyV') this.press('toggleView');
+        if (k === 'KeyP' || k === 'Escape') this.press('menu');
       }
       this.keys.add(k);
     });
@@ -69,6 +73,11 @@ export class Input {
     });
     document.addEventListener('mouseup', (e) => { if (e.button === 0) this.held.attack = false; });
     document.addEventListener('contextmenu', (e) => { if (this.active) e.preventDefault(); });
+    // mouse wheel = zoom camera in/out
+    window.addEventListener('wheel', (e) => {
+      if (!this.active) return;
+      this.zoom += e.deltaY > 0 ? 0.6 : -0.6;
+    }, { passive: true });
 
     // ---------- touch ----------
     const opts = { passive: false };
@@ -91,6 +100,7 @@ export class Input {
       const btn = t.target && t.target.closest ? t.target.closest('[data-btn]') : null;
       if (btn) {
         const name = btn.dataset.btn;
+        if (name === 'zoomin' || name === 'zoomout') { this.zoom += name === 'zoomout' ? 1 : -1; btn.classList.add('down'); setTimeout(() => btn.classList.remove('down'), 120); continue; }
         if (name === 'run') { // sprint is a toggle on phones
           this.runToggle = !this.runToggle;
           btn.classList.toggle('on', this.runToggle);
@@ -104,7 +114,8 @@ export class Input {
         if (name === 'attack') this.lookTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
         continue;
       }
-      if (t.clientX < window.innerWidth * 0.42 && this.joy.id === null) {
+      const onJoySide = this.lefty ? t.clientX > window.innerWidth * 0.58 : t.clientX < window.innerWidth * 0.42;
+      if (onJoySide && this.joy.id === null) {
         const j = this.joy;
         j.id = t.identifier; j.ox = t.clientX; j.oy = t.clientY; j.x = 0; j.y = 0;
         this.joyBase.style.display = 'block';
@@ -191,7 +202,7 @@ export class Input {
     let run = k.has('ShiftLeft') || k.has('ShiftRight');
     if (this.joy.id !== null) {
       fwd = -this.joy.y; strafe = this.joy.x;
-      if (Math.hypot(this.joy.x, this.joy.y) >= CONFIG.CONTROLS.JOYSTICK_RUN_AT) run = true;
+      if (this.autoSprint !== false && Math.hypot(this.joy.x, this.joy.y) >= CONFIG.CONTROLS.JOYSTICK_RUN_AT) run = true;
     }
     if (this.runToggle) run = true;
     const len = Math.hypot(fwd, strafe);
@@ -208,12 +219,15 @@ export class Input {
       next: !!this.edges.next,
       x: !!this.edges.x,
       score: !!this.edges.score,
+      zoom: this.zoom,
+      toggleView: !!this.edges.toggleView,
+      menu: !!this.edges.menu,
       scoreUp: !!this.edges.scoreUp,
       lookDX: this.lookDX,
       lookDY: clamp(this.lookDY, -2, 2) * (this.invertY ? -1 : 1),
     };
     this.edges = {};
-    this.lookDX = 0; this.lookDY = 0;
+    this.lookDX = 0; this.lookDY = 0; this.zoom = 0;
     return out;
   }
 }

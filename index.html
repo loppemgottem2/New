@@ -24,10 +24,10 @@
         <div class="logo-title">KILLER</div>
         <div class="logo-sub">Mystery</div>
       </div>
-      <label class="field">
-        <span>Your name</span>
-        <input id="name-input" maxlength="20" autocomplete="off" spellcheck="false">
-      </label>
+      <div class="player-card">
+        <div><div class="muted">Playing as</div><div id="card-name">Player</div></div>
+        <button id="btn-editor" class="btn small">Character</button>
+      </div>
       <button id="btn-quick" class="btn primary">Quick Play <small>random public server</small></button>
       <button id="btn-browser" class="btn">Server Browser</button>
       <button id="btn-private" class="btn">Private Server <small>play with a code</small></button>
@@ -66,21 +66,35 @@
     </div>
   </div>
 
-  <!-- ===================== SETTINGS ===================== -->
+  <!-- ===================== SETTINGS (filled by main.js) ===================== -->
   <div id="settings" class="screen hidden">
-    <div class="panel">
+    <div class="panel wide scroll">
       <h2>Settings</h2>
-      <label class="field"><span>Touch look sensitivity <b id="v-touch"></b></span><input type="range" id="s-touch" min="1" max="20" step="0.5"></label>
-      <label class="field"><span>Mouse sensitivity <b id="v-mouse"></b></span><input type="range" id="s-mouse" min="0.5" max="8" step="0.1"></label>
-      <label class="field"><span>Field of view <b id="v-fov"></b></span><input type="range" id="s-fov" min="60" max="100" step="1"></label>
-      <label class="field"><span>Volume <b id="v-vol"></b></span><input type="range" id="s-vol" min="0" max="1" step="0.05"></label>
-      <label class="field"><span>Graphics quality</span>
-        <select id="s-quality"><option value="low">Low (fastest)</option><option value="medium">Medium</option><option value="high">High</option></select>
-      </label>
-      <label class="check"><input type="checkbox" id="s-invert"> Invert look up/down</label>
-      <label class="check"><input type="checkbox" id="s-fps"> Show FPS</label>
-      <button id="btn-settings-back" class="btn">Done</button>
+      <div class="tabs" id="settings-tabs"></div>
+      <div id="settings-body"></div>
+      <div class="row">
+        <button id="btn-settings-reset" class="btn small">Reset to defaults</button>
+        <button id="btn-settings-back" class="btn small primary-sm">Done</button>
+      </div>
     </div>
+  </div>
+
+  <!-- ===================== CHARACTER EDITOR ===================== -->
+  <div id="editor" class="screen hidden">
+    <div class="panel editor-panel scroll">
+      <h2>Character</h2>
+      <label class="field">
+        <span>Your name</span>
+        <input id="name-input" maxlength="20" autocomplete="off" spellcheck="false">
+      </label>
+      <div id="editor-body"></div>
+      <p class="muted small-note">During a match your shirt color is your secret codename color, so nobody knows who is who.</p>
+      <div class="row">
+        <button id="btn-editor-random" class="btn small">Randomize</button>
+        <button id="btn-editor-done" class="btn small primary-sm">Done</button>
+      </div>
+    </div>
+    <div class="editor-hint">Drag to rotate</div>
   </div>
 
   <!-- ===================== HELP ===================== -->
@@ -89,12 +103,12 @@
       <h2>How to play</h2>
       <p><b style="color:#4af">Bystanders</b> must survive. One of them secretly has a revolver. Walk over the glowing <b>gun parts</b> — collect 5 to build your own revolver (only one built revolver can exist at a time).</p>
       <p><b style="color:#e33">The Murderer</b> has a knife. Kill everyone without getting caught. You can also throw the knife — then go pick it up.</p>
-      <p>Shooting an innocent bystander makes you drop your gun. When a gun holder dies, the gun drops and anyone (not the murderer) can pick it up.</p>
+      <p>Whoever holds the revolver is the <b style="color:#4af">Sheriff</b>. If the Sheriff shoots an innocent bystander, the Sheriff dies too and the gun drops. Anyone except the murderer can pick a dropped gun up. Chain jumps and air-strafe to build speed, and shove the furniture around for cover.</p>
       <p>Everybody gets a random codename and color each round, so nobody knows who is who. Watch who carries a knife, and who stands over the bodies…</p>
       <h3>Phone controls</h3>
-      <p>Left thumb: move (push to the edge to sprint). Right thumb: drag to look. Buttons: jump, draw/hide weapon, stab/shoot (drag on it to aim too), throw.</p>
+      <p>Left thumb: move (push to the edge to sprint). Right thumb: drag to look. Buttons: jump, draw/hide weapon, stab/shoot (drag on it to aim too), throw, ＋/－ camera zoom, ⚙ settings.</p>
       <h3>Computer controls</h3>
-      <p>WASD move · Mouse look (click to lock) · Shift sprint · Space jump · Left click attack · Q draw/hide · Right click / G throw knife · Tab scoreboard · F next spectate</p>
+      <p>WASD move · Mouse look (click to lock) · Shift sprint · Space jump · Left click attack · Q draw/hide · Right click / G throw knife · Mouse wheel zoom / V third person · Tab scoreboard · F next spectate · Esc / P settings</p>
       <h3>The X button</h3>
       <p>In a match: X = give up and spectate (you die). Press X again = back to the main menu. X on the main menu = leave the game.</p>
       <button id="btn-help-back" class="btn">Back</button>
@@ -155,11 +169,14 @@
     <div class="tbtn" data-btn="throw" id="tb-throw">THROW</div>
     <div class="tbtn big" data-btn="attack" id="tb-attack">STAB</div>
     <div class="tbtn" data-btn="next" id="tb-next">▶</div>
+    <div class="tbtn small" data-btn="zoomin" id="tb-zoomin">＋</div>
+    <div class="tbtn small" data-btn="zoomout" id="tb-zoomout">－</div>
     <div class="touch-hint" id="touch-hint">◀ move here · look here ▶</div>
   </div>
 
   <!-- X button: in game = die & spectate, then menu; in menu = leave game -->
   <button id="xbtn" title="X">✕</button>
+  <button id="gearbtn" class="hidden" title="Settings">⚙</button>
 
   <div id="rotate" class="hidden"><div>⟳</div>Rotate your phone sideways for the best experience<button id="rotate-ok" class="btn small">Play anyway</button></div>
 

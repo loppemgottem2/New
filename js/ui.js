@@ -8,20 +8,30 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export class UI {
   constructor() {
     this.isTouch = false;
-    this.screens = ['menu', 'browser', 'private', 'settings', 'loading', 'left', 'help'];
+    this.screens = ['menu', 'browser', 'private', 'settings', 'loading', 'left', 'help', 'editor'];
     this.bigT = 0;
     this.game = null;
     this.lastHud = {};
   }
 
   show(name) {
+    this.current = name;
     for (const s of this.screens) $(s).classList.toggle('hidden', s !== name);
     const inGame = name === 'game';
     $('hud').classList.toggle('hidden', !inGame);
     $('touch').classList.toggle('hidden', !(inGame && this.isTouch));
-    $('menu-bg-shade').classList.toggle('hidden', inGame);
+    $('menu-bg-shade').classList.toggle('hidden', inGame || name === 'editor');
+    $('gearbtn').classList.toggle('hidden', !inGame);
+    $('settings').classList.remove('overlay');
     document.body.classList.toggle('ingame', inGame);
     if (!inGame) { this.showScoreboard(false); $('bigmsg').classList.add('hidden'); $('toasts').innerHTML = ''; }
+  }
+
+  // settings on top of a running match
+  openOverlay(on) {
+    $('settings').classList.toggle('hidden', !on);
+    $('settings').classList.toggle('overlay', on);
+    this.overlayOpen = on;
   }
 
   setTouch(on) {
@@ -94,18 +104,18 @@ export class UI {
     this._set('hud-timer', ph);
 
     // identity panel (bottom-left, colored like your clothes)
-    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.role === 'none' ? '' : 'Bystander';
+    const roleTxt = !me.alive ? 'Spectating' : s.role === 'murderer' ? 'Murderer' : s.role === 'none' ? '' : s.hasGun ? 'Sheriff' : 'Bystander';
     this._set('hud-name', me.alive ? me.bname : me.nick);
     this._set('hud-role', roleTxt);
     const col = me.alive ? textColor(me.color) : '#888';
     if (this.lastHud.col !== col) { $('hud-id').style.borderColor = me.alive ? hexToCss(me.color) : '#888'; $('hud-name').style.color = col; this.lastHud.col = col; }
-    $('hud-role').className = s.role === 'murderer' && me.alive ? 'murderer' : '';
+    $('hud-role').className = s.role === 'murderer' && me.alive ? 'murderer' : s.hasGun && me.alive ? 'sheriff' : '';
 
     // weapon / parts
     let wtxt = '';
     if (me.alive) {
       if (s.hasKnife) wtxt = s.weapon === 1 ? 'Knife (out)' : 'Knife (hidden)';
-      else if (s.hasGun) wtxt = s.weapon === 2 ? 'Revolver (out)' : 'Revolver (holstered)';
+      else if (s.hasGun) wtxt = s.weapon === 2 ? 'Revolver (drawn)' : 'Revolver (holstered)';
       else if (s.role === 'murderer') wtxt = 'Knife thrown — go pick it up!';
     }
     this._set('hud-weapon', wtxt);
@@ -155,6 +165,7 @@ export class UI {
       tb('jump', alive);
       tb('run', alive);
       tb('next', !alive);
+      tb('zoomin', true); tb('zoomout', true);
     }
     if (this.scoreOpen && Math.random() < 0.05) this.refreshScoreboard();
   }

@@ -25,12 +25,18 @@ export const CONFIG = {
   // ---------------- Player movement / physics ----------------
   PLAYER: {
     RADIUS: 0.32,
-    HEIGHT: 1.8,
-    EYE: 1.64,
+    HEIGHT: 1.84,
+    EYE: 1.68,
     WALK_SPEED: 3.8,
     RUN_SPEED: 6.6,
-    GROUND_ACCEL: 40,       // how fast you reach target speed on ground
-    AIR_ACCEL: 6,           // air control
+    MAX_SPEED: 11,          // hard speed cap (you can build speed by jumping)
+    GROUND_ACCEL: 10,       // Source-style acceleration (higher = snappier)
+    FRICTION: 4,            // ground friction (lower = more sliding)
+    STOP_SPEED: 1.5,
+    LAND_GRACE: 0.12,       // seconds of low friction after landing (keeps momentum when chain-jumping)
+    AIR_ACCEL: 14,          // air strafing strength
+    AIR_WISH_CAP: 1.1,
+    JUMP_BOOST: 0.55,       // extra speed added per running jump
     GRAVITY: 18,
     JUMP_SPEED: 6.4,        // jump apex = JUMP_SPEED^2 / (2*GRAVITY) ≈ 1.14 m
     STEP_HEIGHT: 0.4,       // max ledge you auto-step onto
@@ -51,13 +57,13 @@ export const CONFIG = {
     GUN_RANGE: 90,
     GUN_COOLDOWN: 2.0,          // revolver fire rate
     GUN_PICKUP_RADIUS: 1.1,
-    INNOCENT_KILL_PENALTY: true // gun holder who shoots a bystander drops the gun & can't pick up guns again this round
+    SHERIFF_DIES_ON_INNOCENT_KILL: true, // shooting a bystander kills the shooter too (and the gun drops)
   },
 
   // ---------------- Gun parts (build a revolver) ----------------
   GUNPARTS: {
     COUNT: 5,               // parts needed per player
-    PICKUP_RADIUS: 1.15,
+    PICKUP_RADIUS: 1.4,
   },
 
   // ---------------- Bots ----------------
@@ -82,6 +88,7 @@ export const CONFIG = {
     COLLECT_PARTS_CHANCE: 0.45,
     COLLECT_PARTS_RANGE: 22,      // bots only go for parts this close
     BRAVERY: 0.55,          // chance a bot goes to pick up a dropped gun
+    JUMPINESS: 0.35,        // random hops per second while running away
   },
 
   // ---------------- Networking ----------------
@@ -110,14 +117,31 @@ export const CONFIG = {
 
   GRAPHICS: {
     FOV: 75,
-    MAX_PIXEL_RATIO: 1.5,
+    // presets used by Settings -> Graphics quality
+    PRESETS: {
+      low:    { renderScale: 0.6, dynLights: 0,  viewDist: 70,  glow: false },
+      medium: { renderScale: 0.85, dynLights: 0, viewDist: 110, glow: true },
+      high:   { renderScale: 1.0, dynLights: 6,  viewDist: 160, glow: true },
+      ultra:  { renderScale: 1.5, dynLights: 12, viewDist: 220, glow: true },
+    },
+  },
+
+  // Character customization choices (character editor)
+  LOOKS: {
+    HAIR: ['short', 'buzz', 'sidepart', 'long', 'ponytail', 'bun', 'mohawk', 'spiky', 'afro', 'cap', 'beanie', 'bald'],
+    SHIRTS: ['tshirt', 'longsleeve', 'polo', 'buttonup', 'hoodie', 'jacket', 'tank'],
+    PANTS: ['jeans', 'slacks', 'cargo', 'shorts', 'sweats'],
+    SKINS: [0xf3d7bf, 0xe8c4a0, 0xd9a77e, 0xc08a5e, 0x8d5a3b, 0x5e3a24],
+    HAIR_COLORS: [0x1a1410, 0x3b2716, 0x6b4a2b, 0xa0763c, 0xd8b26a, 0x8c2f1c, 0x9a9a9a, 0x2b4fa8],
+    PANTS_COLORS: [0x2c3e66, 0x22242a, 0x4a4033, 0x5b6b4a, 0x777a80, 0x1d2f4a, 0x8a7a5a],
+    SHIRT_COLORS: [0xc23b3b, 0x2f6fd8, 0x2fa84a, 0xe0c020, 0x9b40d0, 0xf0f0f0, 0x303030, 0xe07a20],
   },
 
   // Bystander identities (re-shuffled every round, like the original gamemode style)
   IDENTITIES: [
     ['Alpha', 0xd03838], ['Bravo', 0x2f6fd8], ['Charlie', 0x2fa84a], ['Delta', 0xe0c020],
     ['Echo', 0x9b40d0], ['Foxtrot', 0xe07a20], ['Golf', 0x20b8b8], ['Hotel', 0xe050a0],
-    ['India', 0x6b4a2a], ['Juliett', 0xf0f0f0], ['Kilo', 0x303030], ['Lima', 0x90d040],
+    ['India', 0x6b4a2a], ['Juliett', 0xf0f0f0], ['Kilo', 0x404448], ['Lima', 0x90d040],
     ['Mike', 0x6070a0], ['November', 0xa02040],
   ],
 };
