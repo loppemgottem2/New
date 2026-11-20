@@ -347,39 +347,106 @@ function graffitiDecal(seed) {
   return t;
 }
 
-// Dirt / trash spot for floors (transparent): stains, spills, paper scraps, butts, crumbs
-function floorDecal(seed) {
+// ---------------------------------------------------------------------
+//  Floor dirt decals (transparent). Several kinds, each placed where that
+//  kind of mess makes sense (see map.js).
+// ---------------------------------------------------------------------
+export const DECAL_KINDS = ['grime', 'spill', 'litter', 'butts', 'footprints', 'food', 'glass', 'scuffs'];
+
+function softBlob(ctx, x, y, r, rgb, a, squash = 1, rot = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(1, squash);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.65, `rgba(${rgb},${a * 0.55})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function scrap(ctx, x, y, w, h, rot, color) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.fillStyle = color;
+  ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2 + 2); ctx.lineTo(w / 2 - 2, h / 2); ctx.lineTo(-w / 2 + 1, h / 2 - 1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(-w / 2, h / 2 - 2, w, 2);
+  ctx.restore();
+}
+
+function floorDecal(kind, seed) {
   const S = 256; const [c, ctx] = canvas(S);
   const R = (k) => hash(seed, k, 470);
-  // grimy stains (soft blobs that fade out at the edges)
-  for (let i = 0; i < 6; i++) {
-    const x = S * (0.25 + R(i) * 0.5), y = S * (0.25 + R(i + 20) * 0.5), r = 30 + R(i + 40) * 55;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const a = 0.45 + R(i + 60) * 0.3, tone = seed % 2 ? '38,26,14' : '52,42,22';
-    g.addColorStop(0, `rgba(${tone},${a})`); g.addColorStop(0.7, `rgba(${tone},${a * 0.5})`); g.addColorStop(1, `rgba(${tone},0)`);
-    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y, r, r * (0.6 + R(i + 80) * 0.4), R(i + 90) * 3, 0, 7); ctx.fill();
-  }
-  if (seed % 3 === 0) { // a dried spill with a darker rim
-    ctx.fillStyle = 'rgba(90,60,20,0.35)'; ctx.beginPath(); ctx.ellipse(S * 0.55, S * 0.5, 50, 30, 0.4, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(60,35,10,0.45)'; ctx.lineWidth = 3; ctx.stroke();
-  }
-  // paper scraps, napkins, wrappers
-  for (let i = 0; i < 11; i++) {
-    const x = S * (0.2 + R(i + 100) * 0.6), y = S * (0.2 + R(i + 120) * 0.6);
-    ctx.save(); ctx.translate(x, y); ctx.rotate(R(i + 140) * 6.28);
-    ctx.fillStyle = R(i + 160) < 0.6 ? 'rgba(235,230,215,0.95)' : `hsla(${Math.floor(R(i + 180) * 360)},60%,45%,0.9)`;
-    const w = 14 + R(i + 200) * 22, h = 10 + R(i + 220) * 14;
-    ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2 + 2); ctx.lineTo(w / 2 - 2, h / 2); ctx.lineTo(-w / 2 + 1, h / 2 - 1); ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-  // cigarette butts, bottle caps, crumbs
-  for (let i = 0; i < 14; i++) {
-    const x = S * (0.15 + R(i + 300) * 0.7), y = S * (0.15 + R(i + 320) * 0.7);
-    ctx.save(); ctx.translate(x, y); ctx.rotate(R(i + 340) * 6.28);
-    if (i % 3 === 0) { ctx.fillStyle = '#e8e0cc'; ctx.fillRect(-5, -1.5, 8, 3); ctx.fillStyle = '#c87a2a'; ctx.fillRect(3, -1.5, 3, 3); }
-    else if (i % 3 === 1) { ctx.fillStyle = '#b8a040'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill(); }
-    else { ctx.fillStyle = 'rgba(120,80,40,0.8)'; for (let k = 0; k < 6; k++) ctx.fillRect(R(i * 9 + k) * 14 - 7, R(i * 9 + k + 50) * 14 - 7, 2, 2); }
-    ctx.restore();
+  const at = (k, m = 0.7) => S * (0.5 - m / 2 + R(k) * m);
+  // every decal sits on a faint grimy base so it blends into the floor
+  for (let i = 0; i < 4; i++) softBlob(ctx, at(i), at(i + 10), 50 + R(i + 20) * 50, '45,35,22', 0.18 + R(i + 30) * 0.12, 0.6 + R(i + 40) * 0.4, R(i + 50) * 3);
+  switch (kind) {
+    case 'grime': // dark ground-in dirt
+      for (let i = 0; i < 9; i++) softBlob(ctx, at(i + 60), at(i + 70), 25 + R(i + 80) * 50, seed % 2 ? '30,22,12' : '42,36,24', 0.35 + R(i + 90) * 0.3, 0.5 + R(i + 95) * 0.5, R(i) * 3);
+      for (let i = 0; i < 300; i++) { ctx.fillStyle = `rgba(30,22,14,${R(i + 400) * 0.5})`; ctx.fillRect(at(i + 100, 0.8), at(i + 700, 0.8), 2, 2); }
+      break;
+    case 'spill': { // dried beer / soda puddle with a darker rim
+      const x = S / 2, y = S / 2;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(R(1) * 3);
+      ctx.beginPath();
+      for (let a = 0; a <= 6.3; a += 0.3) { const r = 70 + R(Math.floor(a * 10)) * 35; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r * 0.7); }
+      ctx.closePath();
+      ctx.fillStyle = seed % 2 ? 'rgba(150,100,30,0.45)' : 'rgba(80,40,25,0.45)'; ctx.fill();
+      ctx.strokeStyle = seed % 2 ? 'rgba(100,60,15,0.6)' : 'rgba(50,22,12,0.6)'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.restore();
+      for (let i = 0; i < 6; i++) softBlob(ctx, at(i + 200, 0.9), at(i + 210, 0.9), 6 + R(i + 220) * 10, '110,70,20', 0.5); // splashes
+      break;
+    }
+    case 'litter': // paper, receipts, wrappers, napkins
+      for (let i = 0; i < 18; i++) {
+        const white = R(i + 160) < 0.55;
+        scrap(ctx, at(i + 100, 0.8), at(i + 120, 0.8), 18 + R(i + 200) * 28, 12 + R(i + 220) * 18, R(i + 140) * 6.28,
+          white ? `rgba(${235 - R(i) * 25 | 0},${230 - R(i) * 25 | 0},215,0.95)` : `hsla(${Math.floor(R(i + 180) * 360)},60%,45%,0.92)`);
+      }
+      break;
+    case 'butts': // cigarette butts + ash
+      for (let i = 0; i < 6; i++) softBlob(ctx, at(i + 300, 0.6), at(i + 310, 0.6), 10 + R(i + 320) * 14, '90,90,90', 0.45);
+      for (let i = 0; i < 26; i++) {
+        ctx.save(); ctx.translate(at(i + 330, 0.75), at(i + 360, 0.75)); ctx.rotate(R(i + 390) * 6.28);
+        ctx.fillStyle = '#ece5d2'; ctx.fillRect(-7, -2, 10, 4); ctx.fillStyle = '#c97a2b'; ctx.fillRect(3, -2, 5, 4); ctx.fillStyle = '#444'; ctx.fillRect(-8, -2, 2, 4);
+        ctx.restore();
+      }
+      break;
+    case 'footprints': { // muddy shoe prints walking "up" the texture
+      for (let i = 0; i < 7; i++) {
+        const y = S - 25 - i * 33, x = S / 2 + (i % 2 ? 16 : -16) + (R(i) - 0.5) * 6;
+        ctx.save(); ctx.translate(x, y); ctx.rotate((R(i + 9) - 0.5) * 0.3);
+        ctx.fillStyle = `rgba(60,42,25,${0.55 - i * 0.05})`;
+        ctx.beginPath(); ctx.ellipse(0, -6, 7, 11, 0, 0, 7); ctx.fill();   // sole
+        ctx.beginPath(); ctx.ellipse(0, 10, 6, 6, 0, 0, 7); ctx.fill();    // heel
+        ctx.restore();
+      }
+      break;
+    }
+    case 'food': // spilled noodles / rice, sauce smears, a crushed cup
+      softBlob(ctx, S * 0.5, S * 0.55, 45, '140,60,20', 0.4, 0.6, R(2) * 3);
+      ctx.strokeStyle = 'rgba(235,205,120,0.95)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      for (let i = 0; i < 22; i++) { // noodles
+        let x = at(i + 500, 0.45), y = at(i + 520, 0.45); ctx.beginPath(); ctx.moveTo(x, y);
+        for (let k = 0; k < 4; k++) { x += (R(i * 4 + k) - 0.5) * 22; y += (R(i * 4 + k + 99) - 0.5) * 22; ctx.lineTo(x, y); }
+        ctx.stroke();
+      }
+      for (let i = 0; i < 40; i++) { ctx.fillStyle = 'rgba(245,240,225,0.95)'; ctx.fillRect(at(i + 600, 0.6), at(i + 640, 0.6), 3, 2); } // rice
+      ctx.fillStyle = 'rgba(210,40,40,0.9)'; ctx.beginPath(); ctx.ellipse(at(7, 0.5), at(8, 0.5), 14, 9, R(9) * 3, 0, 7); ctx.fill(); // crushed cup
+      break;
+    case 'glass': // broken brown bottle shards + a cap
+      softBlob(ctx, S / 2, S / 2, 40, '110,70,20', 0.3);
+      for (let i = 0; i < 30; i++) {
+        ctx.save(); ctx.translate(at(i + 700, 0.6), at(i + 730, 0.6)); ctx.rotate(R(i + 760) * 6.28);
+        const w = 4 + R(i + 790) * 14;
+        ctx.fillStyle = `rgba(${110 + R(i) * 50 | 0},${60 + R(i + 1) * 30 | 0},20,0.85)`;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w, R(i + 2) * 4); ctx.lineTo(w * 0.4, w * 0.7); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,240,200,0.6)'; ctx.fillRect(1, 1, w * 0.3, 1);
+        ctx.restore();
+      }
+      ctx.fillStyle = '#b8a040'; ctx.beginPath(); ctx.arc(at(3, 0.4), at(4, 0.4), 5, 0, 7); ctx.fill();
+      break;
+    default: // scuffs: dark rubber marks dragged across the floor
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 9; i++) {
+        ctx.strokeStyle = `rgba(25,20,18,${0.3 + R(i + 900) * 0.3})`; ctx.lineWidth = 2 + R(i + 910) * 5;
+        const x = at(i + 920, 0.7), y = at(i + 940, 0.7), a = R(i + 960) * 6.28, l = 25 + R(i + 980) * 60;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + Math.cos(a + 0.4) * l * 0.5, y + Math.sin(a + 0.4) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke();
+      }
+      break;
   }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
@@ -633,7 +700,9 @@ export function makeTextures(renderer, quality = 'medium') {
   T.pillar = tex(pillar(256));
   T.floorDirty = tex(floorDirty(S));
   T.graffiti = [0, 1, 2, 3, 4].map((i) => graffitiDecal(i + 1));
-  T.floorDecals = [0, 1, 2, 3].map((i) => floorDecal(i + 1));
+  // two variants of every kind of floor mess
+  T.floorDecals = {};
+  for (const k of DECAL_KINDS) T.floorDecals[k] = [floorDecal(k, 11), floorDecal(k, 12)];
   T.shelfBooks = tex(shelfBooks(256));
   T.takeout = tex(takeoutTex(128));
   T.roof = tex(roof(256));

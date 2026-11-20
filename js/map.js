@@ -500,19 +500,61 @@ export class GameMap {
       b.decal([mx - ux * w + dx * off, mz - uz * w + dz * off], [mx + ux * w + dx * off, mz + uz * w + dz * off], y0, y1, dx, dz);
     });
 
-    // ---- floor dirt / trash decals: only a few spots, next to the furniture in the trashed room ----
+    // ---- floor dirt / trash decals in the trashed room, placed where that mess belongs ----
     {
-      const spots = this.propSpawns.filter((p) => this.floorTypeAt(p.x, p.z) === 'dirty' && ['mattress', 'trashcan', 'table', 'takeout'].includes(p.type));
-      const used = [];
-      spots.forEach((p, i) => {
-        if (hash2(i * 7 + 3, 41) > 0.6) return;
-        if (used.some((u) => Math.hypot(u[0] - p.x, u[1] - p.z) < 2.2)) return; // not piled on top of each other
-        used.push([p.x, p.z]);
-        const k = Math.floor(hash2(i, 17) * T.floorDecals.length);
-        const size = 1.3 + hash2(i, 23) * 0.9;
-        B('floordecal-' + k, T.floorDecals[k]).floorDecal(p.x + (hash2(i, 5) - 0.5) * 0.8, p.z + (hash2(i, 6) - 0.5) * 0.8, size, hash2(i, 9) * 6.28);
+      const inRoom = (x, z) => this.floorTypeAt(x, z) === 'dirty' && this.heightAt(x, z) === 0;
+      const spots = [];   // [x, z, kind, size, rot]
+      const KIND_NEAR = {
+        mattress: ['grime', 'litter', 'butts', 'spill'],
+        bottle: ['spill', 'glass', 'butts'],
+        trashcan: ['litter', 'spill', 'food', 'grime'],
+        table: ['food', 'litter', 'spill'],
+        takeout: ['food', 'litter'],
+        chair: ['scuffs', 'butts'],
+        lamp: ['grime'],
+      };
+      this.propSpawns.forEach((p, i) => {
+        const kinds = KIND_NEAR[p.type];
+        if (!kinds || !inRoom(p.x, p.z)) return;
+        if (p.type === 'bottle' && hash2(i, 61) > 0.35) return; // piles have many bottles: only some get a spill
+        const k = kinds[Math.floor(hash2(i, 17) * kinds.length)];
+        spots.push([p.x + (hash2(i, 5) - 0.5) * 1.2, p.z + (hash2(i, 6) - 0.5) * 1.2, k, 2.2 + hash2(i, 23) * 1.4, hash2(i, 9) * 6.28]);
       });
+      // footprints and scuffs coming in through the doors, grime collecting in corners and along walls
+      for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+        const cx = (x + 0.5) * CELL, cz = (z + 0.5) * CELL;
+        if (!inRoom(cx, cz)) continue;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ox = cx + dx * CELL, oz = cz + dz * CELL;
+          if (this.heightAt(ox, oz) === 0 && !inRoom(ox, oz) && (x + z) % 2 === 0) {
+            // a doorway: tracks heading into the room
+            spots.push([cx - dx * 0.6, cz - dz * 0.6, hash2(x, z * 7) < 0.7 ? 'footprints' : 'scuffs', 2.6, Math.atan2(-dx, dz)]);
+          }
+        }
+        let walls = 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.heightAt(cx + dx * CELL, cz + dz * CELL) >= WALL_H) walls++;
+        if ((walls >= 2 && hash2(x, z) < 0.8) || (walls === 1 && hash2(x + 11, z) < 0.12)) spots.push([cx, cz, hash2(z, x) < 0.75 ? 'grime' : 'litter', 2.4 + hash2(x, z + 2) * 1.2, hash2(z, x + 4) * 6.28]);
+      }
+      // don't let them pile up on top of each other
+      const used = [];
+      spots.forEach(([x, z, kind, size, rot], i) => {
+        if (used.some((u) => Math.hypot(u[0] - x, u[1] - z) < 1.6)) return;
+        used.push([x, z]);
+        const v = Math.floor(hash2(i, 33) * 2);
+        B('floordecal-' + kind + v, T.floorDecals[kind][v]).floorDecal(x, z, size, rot);
+      });
+      this.decalCount = used.length;
     }
+
+    // ---- graffiti: only a handful of spray-painted tags on the trashed room's walls ----
+    graffitiSpots.forEach(([a, c2, dx, dz], i) => {
+      if (hash2(i * 13 + 5, 77) > 0.3) return;
+      const k = Math.floor(hash2(i, 31) * T.graffiti.length);
+      const b = B('graffiti-' + k, T.graffiti[k]);
+      const mx = (a[0] + c2[0]) / 2, mz = (a[1] + c2[1]) / 2, ux = (c2[0] - a[0]) / 2, uz = (c2[1] - a[1]) / 2;
+      const w = 0.75 + hash2(i, 3) * 0.2, y0 = 0.6 + hash2(i, 5) * 0.8, y1 = y0 + 1.1 + hash2(i, 9) * 0.4, off = 0.012;
+      b.decal([mx - ux * w + dx * off, mz - uz * w + dz * off], [mx + ux * w + dx * off, mz + uz * w + dz * off], y0, y1, dx, dz);
+    });
 
     // ---- light fixtures ----
     {
