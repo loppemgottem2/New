@@ -127,8 +127,10 @@ export function moveCharacter(ch, input, dt, map) {
     accelerate(ch, wx, wz, Math.min(wishSpeed, P.AIR_WISH_CAP), P.AIR_ACCEL, dt);
   }
 
-  // short cooldown after landing so you can't instantly jump again (and climb things by double-hopping)
-  if (input.jump && ch.onGround) {
+  // jump buffer: a press shortly before landing still jumps the moment you touch down
+  ch.jumpBuf = input.jump ? 0.15 : Math.max(0, (ch.jumpBuf || 0) - dt);
+  if (ch.jumpBuf > 0 && ch.onGround) {
+    ch.jumpBuf = 0;
     ch.vy = P.JUMP_SPEED; ch.onGround = false; ch.jumped = true;
     // small forward boost when jumping while running (momentum)
     const sp = Math.hypot(ch.vx, ch.vz);

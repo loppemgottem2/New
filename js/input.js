@@ -230,7 +230,7 @@ export class Input {
     if (len < 0.12) { fwd = 0; strafe = 0; }
     const out = {
       fwd, strafe, run,
-      jump: !!this.edges.jump || (!!this.held.jump && this.isTouch),
+      jump: !!this.edges.jump || !!this.held.jump || k.has('Space'),
       attack: !!this.edges.attack,
       attackHeld: !!this.held.attack,
       equip: !!this.edges.equip,
