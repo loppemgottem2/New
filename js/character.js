@@ -388,19 +388,19 @@ export class CharacterModel {
     let legLx = Math.sin(ph) * amp, legRx = -Math.sin(ph) * amp;
     let kneeL = -Math.max(0, -Math.sin(ph)) * amp * 1.6 - runAmt * 0.3 - 0.05;
     let kneeR = -Math.max(0, Math.sin(ph)) * amp * 1.6 - runAmt * 0.3 - 0.05;
-    let legLz = -0.02, legRz = 0.02;
+    let legLz = 0, legRz = 0; // legs swing straight forward/back, never out to the sides
     if (!s.onGround) {
       // little "hop" pose: right knee up, out and bent; left leg back, slightly out and bent
       // legs stay in front of the body (no sideways spread): right knee up, left leg tucked more
-      legRx = 1.0; legRz = 0.03; kneeR = -1.4;
-      legLx = 0.3; legLz = -0.03; kneeL = -1.35;
+      legRx = 1.0; legRz = 0; kneeR = -1.4;
+      legLx = 0.3; legLz = 0; kneeL = -1.35;
     }
     this.legL.hip.rotation.set(legLx, 0, legLz); this.legR.hip.rotation.set(legRx, 0, legRz);
     this.legL.kn.rotation.x = kneeL; this.legR.kn.rotation.x = kneeR;
 
     const bob = Math.abs(Math.sin(ph)) * 0.035 * moving;
     this.pelvis.joint.position.y = 0.92 + bob - runAmt * 0.04;
-    this.pelvis.joint.rotation.y = Math.sin(ph) * 0.12 * moving;
+    this.pelvis.joint.rotation.y = 0; // no hip twist, so the legs move in a straight line
     this.torso.joint.rotation.set(-runAmt * 0.18 + s.pitch * 0.15, -Math.sin(ph) * 0.2 * moving, 0);
     this.head.joint.rotation.set(s.pitch * 0.6, Math.sin(ph) * 0.08 * moving, 0);
 
@@ -426,7 +426,7 @@ export class CharacterModel {
       this.armR.sh.rotation.set(0.9 + k * 1.4 + s.pitch * 0.5, 0, 0.1 - k * 0.3);
       this.armR.el.rotation.x = 0.9 - k * 0.8;
     } else {
-      this.armR.sh.rotation.set(inAir ? 1.75 : armSw * 0.9, 0, inAir ? 0.2 : 0.1);       // thrown up and forward
+      this.armR.sh.rotation.set(inAir ? 1.4 : armSw * 0.9, 0, inAir ? 0.2 : 0.1);        // thrown forward, a bit lower
       this.armR.el.rotation.x = elbowBend;
     }
   }
