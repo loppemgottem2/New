@@ -38,6 +38,10 @@ export function initBrain(c) {
     lookT: rand(1, 3), lookYaw: c.yaw,
     collector: Math.random() < 0.2 + 0.75 * skill,   // smarter bystanders care more about gun parts
     skill,
+    // how well this bot reads suspicious behaviour: skilled = good, clumsy = poor,
+    // but about 1 in 5 clumsy bots happens to read people just as well
+    insight: skill > 0.5 ? skill : (Math.random() < 0.2 ? rand(0.55, 0.95) : skill),
+    fireOk: false,
     scanT: 0, scanOff: 0,
     blockT: 0, blockCount: 0, blockCalm: 0,
     hideWait: 0,
@@ -69,6 +73,43 @@ function witnesses(game, murderer, victim) {
     if (hasLOS(game.map, o.x, o.y + P.EYE, o.z, murderer.x, murderer.y + 1.2, murderer.z)) n++;
   }
   return n;
+}
+
+// Add suspicion as seen by this bot: good readers pick up more (and more reliably),
+// poor readers pick up less and misjudge (random noise). Never reaches full certainty
+// (100 is only for actually seeing a knife / a murder).
+function gainSusp(b, id, amount) {
+  const noise = 1 + (Math.random() * 2 - 1) * 0.8 * (1 - b.insight);
+  const cur = b.susp.get(id) || 0;
+  if (cur >= 95) return;
+  b.susp.set(id, Math.min(95, cur + amount * (0.3 + 0.9 * b.insight) * noise));
+}
+
+// Watch one person's movement and update how suspicious they look.
+function readBehaviour(game, c, b, o, I) {
+  const sp = Math.hypot(o.vx || 0, o.vz || 0);
+  if (sp < 0.8) return;
+  // where is the crowd? (people far from it are outsiders)
+  let sx = 0, sz = 0, n = 0;
+  for (const v of game.chars.values()) { if (v.alive) { sx += v.x; sz += v.z; n++; } }
+  const outsider = n > 2 && Math.hypot(o.x - sx / n, o.z - sz / n) > 14;
+  for (const v of game.chars.values()) {
+    if (v === o || v === c || !v.alive) continue;
+    const dx = v.x - o.x, dz = v.z - o.z, dd = Math.hypot(dx, dz);
+    if (dd > 5 || dd < 0.3) continue;
+    const toward = ((o.vx || 0) * dx + (o.vz || 0) * dz) / (sp * dd);
+    if (toward < 0.7) continue;
+    // only "closing in" counts: the other person isn't walking along with them
+    const vsp = Math.hypot(v.vx || 0, v.vz || 0);
+    const together = vsp > 0.8 && ((o.vx || 0) * (v.vx || 0) + (o.vz || 0) * (v.vz || 0)) / (sp * vsp) > 0.8;
+    if (together) continue;
+    gainSusp(b, o.id, (5 - dd) * 3.4 * I * (dd < 1.6 ? 2.2 : 1) * (outsider ? 1.6 : 0.55));
+  }
+  // an outsider heading toward the group
+  if (outsider) {
+    const gx = sx / n - o.x, gz = sz / n - o.z, gd = Math.hypot(gx, gz) || 1;
+    if (((o.vx || 0) * gx + (o.vz || 0) * gz) / (sp * gd) > 0.7) gainSusp(b, o.id, 2.5 * I);
+  }
 }
 
 // reaction time: skilled bots react faster (with a little randomness)
@@ -180,23 +221,9 @@ function perceive(game, c, b) {
       b.fear = 1;
     }
     if (b.threatId === o.id) b.threat = { x: o.x, z: o.z };
-    // skilled gun holders get suspicious of anyone walking straight at someone else,
-    // the closer they get the more suspicious (capped below "shoot" level)
-    if (c.hasGun && c.role !== 'murderer' && b.skill > 0.35) {
-      const sp = Math.hypot(o.vx || 0, o.vz || 0);
-      if (sp > 0.8) {
-        for (const v of game.chars.values()) {
-          if (v === o || !v.alive) continue;
-          const dx = v.x - o.x, dz = v.z - o.z, dd = Math.hypot(dx, dz);
-          if (dd > 5 || dd < 0.3) continue;
-          const toward = ((o.vx || 0) * dx + (o.vz || 0) * dz) / (sp * dd);
-          if (toward < 0.7) continue;
-          const cur = b.susp.get(o.id) || 0;
-          const add = b.skill * (5 - dd) * 2.2 * I * 5 * (dd < 1.6 ? 2 : 1);
-          if (cur < 75) b.susp.set(o.id, Math.min(75, cur + add));
-        }
-      }
-    }
+    // gun holders judge body language: walking straight at someone (worse the closer),
+    // and being an outsider who isn't part of the group but heads toward people
+    if (c.hasGun && c.role !== 'murderer') readBehaviour(game, c, b, o, I);
   }
   // dead bodies
   if (c.role !== 'murderer') {
@@ -218,14 +245,14 @@ function perceive(game, c, b) {
       }
     }
   }
-  // anyone lingering right next to a (recent) body keeps looking worse to a skilled gun holder
-  if (c.hasGun && c.role !== 'murderer' && b.skill > 0.4) {
+  // anyone hanging around near bodies keeps looking worse to a gun holder
+  if (c.hasGun && c.role !== 'murderer') {
     for (const k of game.corpses) {
-      if (game.time - k.t > 40 || !b.seenCorpses.has(k.id)) continue;
+      if (game.time - k.t > 45 || !b.seenCorpses.has(k.id)) continue;
       for (const o of game.chars.values()) {
         if (o === c || !o.alive || b.seenAt.get(o.id) !== now) continue;
         const d = Math.hypot(o.x - k.x, o.z - k.z);
-        if (d < 3) { const cur = b.susp.get(o.id) || 0; if (cur < 70) b.susp.set(o.id, Math.min(70, cur + (3 - d) * 3 * b.skill * I * 5)); }
+        if (d < 4) gainSusp(b, o.id, (4 - d) * 4 * I);
       }
     }
   }
@@ -260,8 +287,14 @@ function thinkInnocent(game, c, b, active) {
   if (active && c.hasGun && game.phase === 'play') {
     const t = bestTarget(game, c, b, B.DRAW_SUSPICION);
     if (t) {
-      if (b.targetId !== t.id) b.reactT = reactTime(b);
+      if (b.targetId !== t.id) { b.reactT = reactTime(b); b.fireOk = false; }
       b.targetId = t.id;
+      // decide to pull the trigger: certain (saw a knife / a murder) -> yes.
+      // Otherwise a chance that grows with suspicion; good readers commit far more often,
+      // clumsy ones rarely (and when they do, it's often the wrong person)
+      const sus = b.susp.get(t.id) || 0;
+      if (sus >= 100) b.fireOk = true;
+      else if (!b.fireOk && Math.random() < clamp((sus - 55) / 35, 0, 1) * (0.08 + 0.7 * b.insight) * B.THINK_INTERVAL) b.fireOk = true;
       b.state = 'engage';
       if (!c.equipped) game.hostAction(c, 'equip');
       return;
@@ -269,7 +302,7 @@ function thinkInnocent(game, c, b, active) {
     if (b.state === 'engage') {
       // lost sight: go to where we last saw them
       const o = game.chars.get(b.targetId);
-      if (o && o.alive && (b.susp.get(o.id) || 0) >= B.SHOOT_SUSPICION) {
+      if (o && o.alive && ((b.susp.get(o.id) || 0) >= B.SHOOT_SUSPICION || b.fireOk)) {
         b.state = 'hunt';
         setPath(game, c, b, o.x, o.z);
       } else { b.state = 'wander'; b.targetId = null; }
@@ -522,14 +555,16 @@ function thinkMurderer(game, c, b) {
   const throwChance = b.skill < 0.45 ? 0 : B.THROW_CHANCE * (0.4 + b.skill) * I;
   if (d < 7.5 && seeT && (wit === 0 || bold)) {
     b.state = 'attack';
-    // walk up casually with the knife hidden, pull it out at the last moment
-    const close = d < 3.6 || t.running || bold;
-    if (close && !c.equipped) game.hostAction(c, 'equip');
-    b.run = close && canSprint;
-    if (d > 4.5 && d < 13 && t.running && Math.random() < throwChance) b.wantThrow = true;
+    // rush them, and only pull the knife out when right next to them.
+    // Clumsy murderers sometimes slip into walking by mistake.
+    if (b.walkSlip > 0) b.walkSlip -= I;
+    else if (Math.random() < (1 - b.skill) * 0.12 * I) b.walkSlip = rand(0.6, 1.6);
+    if (d < 2.6 && !c.equipped) game.hostAction(c, 'equip');
+    b.run = canSprint && !(b.walkSlip > 0);
+    if (d > 4.5 && d < 13 && t.running && Math.random() < throwChance) { b.wantThrow = true; if (!c.equipped) game.hostAction(c, 'equip'); }
   } else if (b.state === 'attack' && d < 14 && seeT) {
     b.run = canSprint; // keep chasing
-    if (d > 5 && d < 13 && Math.random() < throwChance) b.wantThrow = true;
+    if (d > 5 && d < 13 && Math.random() < throwChance) { b.wantThrow = true; if (!c.equipped) game.hostAction(c, 'equip'); }
   } else {
     b.state = 'stalk';
     if (c.equipped && wit > 0) game.hostAction(c, 'equip');
@@ -574,7 +609,7 @@ function act(game, c, b, dt) {
     b.reactT -= dt;
     const err = Math.abs(angleDiff(c.yaw, faceYaw));
     const susp = b.susp.get(target.id) || 0;
-    if (visible && b.reactT <= 0 && err < (8 - 5 * b.skill) * DEG && susp >= B.SHOOT_SUSPICION && c.attackCd <= 0 && d < 45 &&
+    if (visible && b.reactT <= 0 && err < (8 - 5 * b.skill) * DEG && (b.fireOk || susp >= 100) && c.attackCd <= 0 && d < 45 &&
         weaponOf(c) === 2 && game.phase === 'play') {
       // aim quality depends on skill (random per bot), distance and moving while shooting
       const spread = B.AIM_SPREAD_DEG * DEG * (2.0 - 1.6 * b.skill) * rand(0.8, 1.2) * (1 + d / 25) * (c.speed > 1 ? 1.6 - 0.4 * b.skill : 1);
