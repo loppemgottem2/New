@@ -404,9 +404,12 @@ export class CharacterModel {
     this.torso.joint.rotation.set(-runAmt * 0.18 + s.pitch * 0.15, -Math.sin(ph) * 0.2 * moving, 0);
     this.head.joint.rotation.set(s.pitch * 0.6, Math.sin(ph) * 0.08 * moving, 0);
 
-    const armSw = Math.sin(ph) * amp * 0.9;
-    this.armL.sh.rotation.set(-armSw * 0.9, 0, -0.1);
-    this.armL.el.rotation.x = 0.25 + runAmt * 0.9;
+    // in the air the arms stop swinging and just bend (elbows up, hands in front)
+    const inAir = !s.onGround;
+    const armSw = inAir ? 0 : Math.sin(ph) * amp * 0.9;
+    const elbowBend = inAir ? 1.35 : 0.25 + runAmt * 0.9;
+    this.armL.sh.rotation.set(inAir ? 0.35 : -armSw * 0.9, 0, inAir ? -0.22 : -0.1);
+    this.armL.el.rotation.x = elbowBend;
 
     if (this.swingT > 0) this.swingT -= dt;
     if (this.recoilT > 0) this.recoilT -= dt;
@@ -422,8 +425,8 @@ export class CharacterModel {
       this.armR.sh.rotation.set(0.9 + k * 1.4 + s.pitch * 0.5, 0, 0.1 - k * 0.3);
       this.armR.el.rotation.x = 0.9 - k * 0.8;
     } else {
-      this.armR.sh.rotation.set(armSw * 0.9, 0, 0.1);
-      this.armR.el.rotation.x = 0.25 + runAmt * 0.9;
+      this.armR.sh.rotation.set(inAir ? 0.35 : armSw * 0.9, 0, inAir ? 0.22 : 0.1);
+      this.armR.el.rotation.x = elbowBend;
     }
   }
 
