@@ -96,7 +96,7 @@ const SUN_DIR = new THREE.Vector3(0.45, 0.82, 0.36).normalize();
 const SUN_COL = [1.15, 1.05, 0.88];
 const SKY_COL = [0.42, 0.5, 0.62];
 const INDOOR_AMB = [0.13, 0.125, 0.12];
-const LAMP_COL = [1.0, 0.9, 0.74];
+const LAMP_COL = [1.0, 0.96, 0.9];
 const LAMP_INT = 2.3;
 const LAMP_RANGE = 10;
 

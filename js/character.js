@@ -1,6 +1,7 @@
 // =====================================================================
 //  CHARACTER.JS — humanoid character: shaped low-poly body (lathe torso,
-//  tapered limbs), big head with a painted face, hairstyles, clothing
+//  tapered limbs), big head with a face made of shapes (eyes, brows,
+//  mouth), hairstyles, clothing
 //  types, procedural walk/run/jump/weapon animation, first-person arms.
 //
 //  Facing: the model looks toward -Z when yaw = 0. Right hand is +X.
@@ -8,13 +9,17 @@
 // =====================================================================
 import * as THREE from '../vendor/three.module.min.js';
 import { CONFIG } from './config.js';
-import { faceTexture, FACES } from './textures.js';
+
 
 const L = CONFIG.LOOKS;
+export const FACES = L.FACES;
+export const WHITE_SKIN = L.SKINS[0];
+// old saved looks -> new choices
+const SHIRT_MAP = { longsleeve: 'sweater', hoodie: 'sweater', jacket: 'sweater', polo: 'dressshirt', buttonup: 'dressshirt', tank: 'tshirt' };
 const pickR = (a, rng = Math.random) => a[Math.floor(rng() * a.length)];
 
 export const DEFAULT_LOOK = {
-  hair: 'short', hairColor: 0x3b2716, face: 'smile', skin: 0xe8c4a0,
+  hair: 'short', hairColor: 0x3b2716, face: 'smile', skin: WHITE_SKIN,
   shirt: 'tshirt', shirtColor: 0x2f6fd8, pants: 'jeans', pantsColor: 0x2c3e66,
 };
 export function randomLook(rng = Math.random) {
@@ -32,7 +37,7 @@ export function sanitizeLook(l) {
     hairColor: col(l.hairColor, DEFAULT_LOOK.hairColor),
     face: FACES.includes(l.face) ? l.face : DEFAULT_LOOK.face,
     skin: col(l.skin, DEFAULT_LOOK.skin),
-    shirt: L.SHIRTS.includes(l.shirt) ? l.shirt : DEFAULT_LOOK.shirt,
+    shirt: L.SHIRTS.includes(l.shirt) ? l.shirt : (SHIRT_MAP[l.shirt] || DEFAULT_LOOK.shirt),
     shirtColor: col(l.shirtColor, DEFAULT_LOOK.shirtColor),
     pants: L.PANTS.includes(l.pants) ? l.pants : DEFAULT_LOOK.pants,
     pantsColor: col(l.pantsColor, DEFAULT_LOOK.pantsColor),
@@ -46,28 +51,36 @@ function down(geo, len) { geo.translate(0, -len / 2, 0); return geo; }
 function geos() {
   if (G) return G;
   G = {};
-  G.torso = new THREE.LatheGeometry(v2([[0.001, -0.03], [0.13, -0.02], [0.148, 0.05], [0.138, 0.17], [0.15, 0.29], [0.172, 0.4], [0.188, 0.47], [0.17, 0.53], [0.12, 0.575], [0.055, 0.6], [0.001, 0.6]]), 16);
-  G.torso.scale(1, 1, 0.66);
-  G.pelvis = new THREE.LatheGeometry(v2([[0.001, -0.15], [0.1, -0.145], [0.142, -0.07], [0.146, 0.0], [0.138, 0.05], [0.001, 0.05]]), 16);
-  G.pelvis.scale(1, 1, 0.72);
+  // torso is a bit wider/deeper so the legs never stick out past the hips
+  G.torso = new THREE.LatheGeometry(v2([[0.001, -0.03], [0.15, -0.02], [0.168, 0.05], [0.16, 0.17], [0.168, 0.29], [0.188, 0.4], [0.204, 0.47], [0.184, 0.535], [0.13, 0.578], [0.058, 0.6], [0.001, 0.6]]), 18);
+  G.torso.scale(1, 1, 0.74);
+  G.pelvis = new THREE.LatheGeometry(v2([[0.001, -0.15], [0.12, -0.145], [0.16, -0.07], [0.168, 0.0], [0.16, 0.05], [0.001, 0.05]]), 18);
+  G.pelvis.scale(1, 1, 0.78);
   G.neck = new THREE.CylinderGeometry(0.052, 0.058, 0.12, 10); G.neck.translate(0, 0.585, 0);
   G.head = new THREE.SphereGeometry(0.155, 24, 16); G.head.scale(0.94, 1.08, 1.0); G.head.translate(0, 0.15, 0);
-  G.nose = new THREE.SphereGeometry(0.024, 8, 6); G.nose.scale(0.8, 1.3, 1.1);
-  G.ear = new THREE.SphereGeometry(0.034, 8, 6); G.ear.scale(0.45, 1, 0.75);
-  G.shoulder = new THREE.SphereGeometry(0.062, 10, 8);
-  G.upperArm = down(new THREE.CylinderGeometry(0.056, 0.049, 0.29, 10), 0.29);
+  // face parts (shapes, no textures)
+  G.eye = new THREE.SphereGeometry(0.03, 12, 10);
+  G.pupil = new THREE.SphereGeometry(0.016, 10, 8);
+  G.lid = new THREE.SphereGeometry(0.033, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  G.brow = new THREE.BoxGeometry(0.05, 0.012, 0.014);
+  G.mouthArc = new THREE.TorusGeometry(0.034, 0.008, 6, 14, Math.PI);
+  G.mouthLine = new THREE.BoxGeometry(0.05, 0.01, 0.012);
+  G.mouthO = new THREE.TorusGeometry(0.016, 0.007, 6, 14);
+  G.mouthOpen = new THREE.CircleGeometry(0.036, 16, Math.PI, Math.PI);
+  G.shoulder = new THREE.SphereGeometry(0.066, 10, 8);
+  G.upperArm = down(new THREE.CylinderGeometry(0.06, 0.052, 0.29, 10), 0.29);
   G.sleeveShort = down(new THREE.CylinderGeometry(0.066, 0.06, 0.16, 10), 0.16);
   G.elbow = new THREE.SphereGeometry(0.049, 8, 6);
   G.foreArm = down(new THREE.CylinderGeometry(0.048, 0.038, 0.25, 10), 0.25);
   G.cuff = down(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 10), 0.04); G.cuff.translate(0, -0.22, 0);
   G.hand = new THREE.SphereGeometry(0.05, 10, 8); G.hand.scale(0.82, 1.3, 0.55); G.hand.translate(0, -0.3, 0);
   G.thumb = new THREE.CapsuleGeometry(0.014, 0.04, 2, 6); G.thumb.rotateZ(0.5); G.thumb.translate(-0.035, -0.28, -0.015);
-  G.thigh = down(new THREE.CylinderGeometry(0.09, 0.066, 0.44, 12), 0.44);
-  G.thighShort = down(new THREE.CylinderGeometry(0.094, 0.082, 0.24, 12), 0.24);
-  G.knee = new THREE.SphereGeometry(0.066, 10, 8);
-  G.shin = down(new THREE.CylinderGeometry(0.064, 0.046, 0.4, 10), 0.4);
+  G.thigh = down(new THREE.CylinderGeometry(0.074, 0.058, 0.44, 12), 0.44);
+  G.thighShort = down(new THREE.CylinderGeometry(0.078, 0.07, 0.24, 12), 0.24);
+  G.knee = new THREE.SphereGeometry(0.058, 10, 8);
+  G.shin = down(new THREE.CylinderGeometry(0.057, 0.044, 0.4, 10), 0.4);
   G.shoe = new THREE.CapsuleGeometry(0.052, 0.15, 4, 10); G.shoe.rotateX(Math.PI / 2); G.shoe.scale(1, 0.72, 1); G.shoe.translate(0, -0.405, -0.045);
-  G.hood = new THREE.TorusGeometry(0.105, 0.042, 8, 16); G.hood.rotateX(Math.PI / 2); G.hood.translate(0, 0.565, 0.025);
+  G.collar = new THREE.TorusGeometry(0.062, 0.016, 6, 16); G.collar.rotateX(Math.PI / 2); G.collar.translate(0, 0.585, 0);
   G.blob = new THREE.PlaneGeometry(0.9, 0.9);
   // weapons
   G.blade = new THREE.BoxGeometry(0.016, 0.034, 0.24); G.blade.translate(0, 0, -0.17);
@@ -162,6 +175,41 @@ function hairMeshes(style, hairMat) {
   return out;
 }
 
+// ---------------- face (made of shapes) ----------------
+// Head center is at (0, 0.15, 0); the face looks toward -Z.
+function faceMeshes(face, M) {
+  const g = geos();
+  const out = [];
+  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz); out.push(m); return m;
+  };
+  const EY = 0.165, EX = 0.052, EZ = -0.128;
+  // eyeballs + pupils
+  for (const sx of [-1, 1]) {
+    add(g.eye, M.eyeWhite, sx * EX, EY, EZ, 0, 0, 0, 1, face === 'surprised' ? 1.25 : 1.05, 0.9);
+    add(g.pupil, M.pupil, sx * EX, EY - 0.002, EZ - 0.022, 0, 0, 0, 1, face === 'surprised' ? 1.1 : 1, 0.6);
+    if (face === 'sleepy') add(g.lid, M.skin, sx * EX, EY + 0.001, EZ, -0.5, 0, 0, 1.02, 1.1, 0.95); // half-closed eyelids
+  }
+  // eyebrows: angle tells the mood
+  const browTilt = { angry: 0.38, sad: -0.32, surprised: 0, sleepy: 0.08, happy: -0.08 }[face] ?? 0;
+  const browY = { angry: EY + 0.04, surprised: EY + 0.068, sad: EY + 0.05 }[face] ?? EY + 0.052;
+  for (const sx of [-1, 1]) add(g.brow, M.brow, sx * EX, browY, -0.14, -0.3, 0, -sx * browTilt);
+  // mouth
+  // z of the head's front surface at height y (so the mouth sits right on the skin)
+  const surf = (y) => -Math.sqrt(Math.max(0, 0.155 * 0.155 - ((y - 0.15) / 1.08) ** 2)) - 0.004;
+  const MY = 0.09;
+  switch (face) {
+    case 'smile': add(g.mouthArc, M.mouth, 0, MY + 0.026, surf(MY + 0.01), -0.3, 0, Math.PI, 1, 0.75, 1); break;   // ∪
+    case 'happy': add(g.mouthOpen, M.mouthDark, 0, MY + 0.014, surf(MY + 0.002) - 0.002, -0.3, Math.PI, 0, 1, 0.9, 1); break; // open grin
+    case 'sad': add(g.mouthArc, M.mouth, 0, MY - 0.016, surf(MY), -0.3, 0, 0, 0.9, 0.6, 1); break;                // ∩
+    case 'angry': add(g.mouthArc, M.mouth, 0, MY - 0.01, surf(MY - 0.004), -0.3, 0, 0, 1.1, 0.35, 1); break;
+    case 'surprised': add(g.mouthO, M.mouthDark, 0, MY, surf(MY), -0.3, 0, 0, 1, 1.3, 1); break;
+    case 'sleepy': add(g.mouthLine, M.mouth, 0, MY + 0.004, surf(MY), -0.3, 0, 0.12, 0.8, 1, 1); break;
+    default: add(g.mouthLine, M.mouth, 0, MY + 0.004, surf(MY), -0.3); break;                                      // neutral
+  }
+  return out;
+}
+
 const tmpV = new THREE.Vector3();
 
 export class CharacterModel {
@@ -175,15 +223,20 @@ export class CharacterModel {
     const mat = (o) => { const m = new THREE.MeshLambertMaterial(o); m.userData.base = (o.color ?? 0xffffff); return m; };
     this.mats = {
       shirt: mat({ map: T.shirt[lk.shirt], color: lk.shirtColor }),
-      sleeve: mat({ map: T.sleeve, color: lk.shirtColor }),
+      sleeve: mat({ map: lk.shirt === 'sweater' ? T.sleeveKnit : T.sleeve, color: lk.shirtColor }),
       pants: mat({ map: T.pants[lk.pants], color: lk.pantsColor }),
       hips: mat({ map: T.hips[lk.pants], color: lk.pantsColor }),
       skin: mat({ color: lk.skin }),
-      face: mat({ map: faceTexture(lk.face, lk.skin), color: 0xffffff }),
+      brow: mat({ color: lk.hairColor === 0x9a9a9a ? 0x777777 : lk.hairColor }),
       hair: mat({ color: lk.hairColor }),
       shoes: mat({ color: 0x1e1c1b }),
     };
     this.skinColor = lk.skin;
+    // eyes / mouth are not tinted by the room light as much (keeps faces readable)
+    this.mats.eyeWhite = shared('eyeWhite', () => new THREE.MeshLambertMaterial({ color: 0xf8f8f4, emissive: 0x222222 }));
+    this.mats.pupil = shared('pupil', () => new THREE.MeshBasicMaterial({ color: 0x15100c }));
+    this.mats.mouth = shared('mouth', () => new THREE.MeshLambertMaterial({ color: 0x5a1d1a }));
+    this.mats.mouthDark = shared('mouthDark', () => new THREE.MeshBasicMaterial({ color: 0x2a0b0a, side: THREE.DoubleSide }));
     const M = this.mats;
     const mk = (parent, geo, m, x = 0, y = 0, z = 0) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(x, y, z); parent.add(mesh); return mesh; };
     const seg = (parent, x, y, z) => { const joint = new THREE.Group(); joint.position.set(x, y, z); parent.add(joint); const vis = new THREE.Group(); joint.add(vis); return { joint, vis }; };
@@ -195,19 +248,17 @@ export class CharacterModel {
     this.torso = seg(this.pelvis.joint, 0, 0, 0);
     mk(this.torso.vis, g.torso, M.shirt);
     mk(this.torso.vis, g.neck, M.skin);
-    if (lk.shirt === 'hoodie') mk(this.torso.vis, g.hood, M.shirt);
+    if (lk.shirt === 'sweater' || lk.shirt === 'tshirt') mk(this.torso.vis, g.collar, M.sleeve);
     // head
     this.head = seg(this.torso.joint, 0, 0.6, 0);
-    this.headMesh = mk(this.head.vis, g.head, M.face);
-    mk(this.head.vis, g.nose, M.skin, 0, 0.135, -0.158);
-    mk(this.head.vis, g.ear, M.skin, -0.146, 0.145, 0.01);
-    mk(this.head.vis, g.ear, M.skin, 0.146, 0.145, 0.01);
+    this.headMesh = mk(this.head.vis, g.head, M.skin);
+    for (const f of faceMeshes(lk.face, M)) this.head.vis.add(f);
     for (const h of hairMeshes(lk.hair, M.hair)) this.head.vis.add(h);
     // arms
-    const longSleeve = ['longsleeve', 'buttonup', 'hoodie', 'jacket'].includes(lk.shirt);
-    const noSleeve = lk.shirt === 'tank';
+    const longSleeve = lk.shirt === 'dressshirt' || lk.shirt === 'sweater';
+    const noSleeve = false;
     const makeArm = (side) => {
-      const sh = seg(this.torso.joint, 0.205 * side, 0.465, 0);
+      const sh = seg(this.torso.joint, 0.222 * side, 0.465, 0);
       mk(sh.vis, g.shoulder, noSleeve ? M.skin : M.shirt);
       mk(sh.vis, g.upperArm, longSleeve ? M.sleeve : M.skin);
       if (!longSleeve && !noSleeve) mk(sh.vis, g.sleeveShort, M.sleeve);
@@ -225,7 +276,7 @@ export class CharacterModel {
     // legs
     const shorts = lk.pants === 'shorts';
     const makeLeg = (side) => {
-      const hip = seg(this.pelvis.joint, 0.094 * side, -0.05, 0);
+      const hip = seg(this.pelvis.joint, 0.088 * side, -0.05, 0);
       if (shorts) { mk(hip.vis, g.thighShort, M.pants); mk(hip.vis, g.thigh, M.skin).scale.set(0.92, 1, 0.92); }
       else mk(hip.vis, g.thigh, M.pants);
       const kn = seg(hip.joint, 0, -0.44, 0);
@@ -267,8 +318,14 @@ export class CharacterModel {
   }
   setLight(r, g, b) { this.light[0] = r; this.light[1] = g; this.light[2] = b; this.applyLight(); }
   applyLight() {
-    const [r, g, b] = this.light;
-    for (const m of Object.values(this.mats)) { m.color.setHex(m.userData.base); m.color.r *= r; m.color.g *= g; m.color.b *= b; }
+    // mostly brightness, only a little of the light's color (so skin doesn't turn orange under warm lamps)
+    let [r, g, b] = this.light;
+    const lum = 0.3 * r + 0.55 * g + 0.15 * b;
+    r = lum * 0.8 + r * 0.2; g = lum * 0.8 + g * 0.2; b = lum * 0.8 + b * 0.2;
+    for (const m of Object.values(this.mats)) {
+      if (m.userData.base === undefined) continue;
+      m.color.setHex(m.userData.base); m.color.r *= r; m.color.g *= g; m.color.b *= b;
+    }
   }
 
   setWeapon(w) { this.weapon = w; this.knife.visible = w === 1; this.gun.visible = w === 2; }
@@ -342,7 +399,7 @@ export class CharacterModel {
   }
 
   dispose() {
-    for (const m of Object.values(this.mats)) m.dispose();
+    for (const m of Object.values(this.mats)) if (m.userData.base !== undefined) m.dispose();
     this.blob.material.dispose();
     this.head.vis.traverse((o) => { if (o.isMesh && o.geometry !== geos().head && !Object.values(geos()).includes(o.geometry)) o.geometry.dispose(); });
   }
@@ -357,6 +414,7 @@ export class ViewModel {
     this.arm = new THREE.Group();
     this.group.add(this.arm);
     this.sleeve = new THREE.MeshLambertMaterial({ color: 0x888888, map: textures.sleeve });
+    this.sleeveKnit = new THREE.MeshLambertMaterial({ color: 0x888888, map: textures.sleeveKnit });
     this.skin = new THREE.MeshLambertMaterial({ color: 0xe0b48c });
     const g = geos();
     // forearm runs from the hand (arm origin) back toward the camera
@@ -372,9 +430,10 @@ export class ViewModel {
     this.lookKey = '';
   }
   setLook(look, shirtColor, light) {
-    const long = ['longsleeve', 'buttonup', 'hoodie', 'jacket'].includes(look.shirt);
-    this.fore.material = long ? this.sleeve : this.skin;
-    this.sleeve.color.setHex(shirtColor).multiplyScalar(light);
+    const long = look.shirt === 'dressshirt' || look.shirt === 'sweater';
+    const sl = look.shirt === 'sweater' ? this.sleeveKnit : this.sleeve;
+    this.fore.material = long ? sl : this.skin;
+    sl.color.setHex(shirtColor).multiplyScalar(light);
     this.skin.color.setHex(look.skin).multiplyScalar(light);
   }
   swing() { this.swingT = 0.35; }

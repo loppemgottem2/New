@@ -346,20 +346,33 @@ function shirtTex(type) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, S - 10, S, 4); // hem
   const cx = S / 2;
   const dark = 'rgba(0,0,0,0.35)';
-  if (type === 'tshirt' || type === 'longsleeve' || type === 'tank') {
+  if (type === 'tshirt') {
     ctx.strokeStyle = dark; ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.ellipse(cx, 0, type === 'tank' ? 40 : 26, type === 'tank' ? 50 : 22, 0, 0, Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, 0, 26, 22, 0, 0, Math.PI); ctx.stroke();
   }
-  if (type === 'polo' || type === 'buttonup') {
+  if (type === 'sweater') {
+    // knit texture + ribbed hem and neck
+    const img = ctx.getImageData(0, 0, S, S), d = img.data;
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const k = ((x % 8) < 4 ? 1 : -1) * ((Math.floor(y / 6) % 2) ? 6 : -6) + ((x % 8 === 0) ? -14 : 0);
+      const i = (y * S + x) * 4; d[i] += k; d[i + 1] += k; d[i + 2] += k;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    for (let x = 0; x < S; x += 6) { ctx.fillRect(x, S - 26, 3, 26); ctx.fillRect(x, 0, 3, 14); }
+    // a simple stripe across the chest
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(0, 70, S, 10); ctx.fillRect(0, 86, S, 4);
+  }
+  if (type === 'dressshirt') {
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.beginPath(); ctx.moveTo(cx - 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx - 6, 0); ctx.fill();
     ctx.beginPath(); ctx.moveTo(cx + 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx + 6, 0); ctx.fill();
     ctx.strokeStyle = dark; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx - 30, 0); ctx.lineTo(cx, 26); ctx.lineTo(cx + 30, 0); ctx.stroke();
-    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(cx - 5, 20, 10, type === 'polo' ? 50 : S);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(cx - 5, 20, 10, S);
     ctx.fillStyle = 'rgba(30,30,30,0.6)';
-    for (let y = 34; y < (type === 'polo' ? 70 : S - 20); y += 26) { ctx.beginPath(); ctx.arc(cx, y, 2.6, 0, 7); ctx.fill(); }
-    if (type === 'buttonup') { ctx.strokeStyle = dark; ctx.strokeRect(cx + 22, 60, 24, 26); }
+    for (let y = 34; y < S - 20; y += 26) { ctx.beginPath(); ctx.arc(cx, y, 2.6, 0, 7); ctx.fill(); }
+    ctx.strokeStyle = dark; ctx.strokeRect(cx + 22, 60, 24, 26);
   }
   if (type === 'hoodie') {
     ctx.fillStyle = 'rgba(0,0,0,0.16)';
@@ -383,6 +396,12 @@ function sleeveTex() {
   const S = 64; const [c, ctx] = canvas(S);
   fabric(ctx, S, 170, 10);
   ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, S - 5, S, 4);
+  return tex(c, false);
+}
+function knitSleeveTex() {
+  const S = 64; const [c, ctx] = canvas(S);
+  paint(ctx, S, S, (u, v, x, y) => { const k = ((x % 8) < 4 ? 1 : -1) * ((Math.floor(y / 6) % 2) ? 7 : -7); const b = 230 + k; return [b, b, b]; });
+  ctx.fillStyle = 'rgba(0,0,0,0.18)'; for (let x = 0; x < S; x += 4) ctx.fillRect(x, S - 10, 2, 10);
   return tex(c, false);
 }
 function pantsTex(type) {
@@ -413,74 +432,6 @@ function hipsTex(type) {
 }
 
 // ======================================================================
-//  Faces (SphereGeometry UV: front of head (-Z) is u = 0.75)
-// ======================================================================
-const faceCache = new Map();
-export function faceTexture(face, skinHex) {
-  const key = face + skinHex;
-  if (faceCache.has(key)) return faceCache.get(key);
-  const W = 512, H = 256;
-  const [c, ctx] = canvas(W, H);
-  const sk = new THREE.Color(skinHex);
-  const s = (k) => `rgb(${Math.min(255, sk.r * 255 * k) | 0},${Math.min(255, sk.g * 255 * k) | 0},${Math.min(255, sk.b * 255 * k) | 0})`;
-  ctx.fillStyle = s(1); ctx.fillRect(0, 0, W, H);
-  // skin variation + cheeks
-  for (let i = 0; i < 900; i++) { ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.03})`; ctx.fillRect(Math.random() * W, Math.random() * H, 3, 3); }
-  const cx = W * 0.75, cy = H * 0.5;
-  // draw all features 30% larger around the face center
-  ctx.save(); ctx.translate(cx, cy); ctx.scale(1.3, 1.3); ctx.translate(-cx, -cy);
-  const blush = (x) => { const g = ctx.createRadialGradient(x, cy + 26, 0, x, cy + 26, 22); g.addColorStop(0, 'rgba(220,90,90,0.22)'); g.addColorStop(1, 'rgba(220,90,90,0)'); ctx.fillStyle = g; ctx.fillRect(x - 25, cy, 50, 55); };
-  blush(cx - 40); blush(cx + 40);
-  // nose shadow
-  ctx.fillStyle = s(0.82); ctx.beginPath(); ctx.ellipse(cx, cy + 20, 7, 13, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = s(1.08); ctx.beginPath(); ctx.ellipse(cx - 2, cy + 16, 3, 8, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = s(0.6); ctx.beginPath(); ctx.arc(cx - 5, cy + 31, 2.4, 0, 7); ctx.arc(cx + 5, cy + 31, 2.4, 0, 7); ctx.fill();
-  // eyes
-  const eye = (ex, look = 0, lid = 0) => {
-    ctx.fillStyle = '#fbfbf8'; ctx.beginPath(); ctx.ellipse(ex, cy, 13, 8.5, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = face === 'blue' ? '#3a78b8' : '#4d3420'; ctx.beginPath(); ctx.arc(ex + look, cy + 0.5, 6.2, 0, 7); ctx.fill();
-    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(ex + look, cy + 0.5, 3, 0, 7); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex + look + 2, cy - 2, 1.4, 0, 7); ctx.fill();
-    ctx.strokeStyle = s(0.55); ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(ex, cy, 13, 8.5, 0, Math.PI, 0); ctx.stroke();
-    if (lid) { ctx.fillStyle = s(0.92); ctx.fillRect(ex - 14, cy - 10, 28, 10 * lid); }
-  };
-  const tired = face === 'tired', angry = face === 'serious';
-  eye(cx - 26, 0, tired ? 0.75 : angry ? 0.35 : 0); eye(cx + 26, 0, tired ? 0.75 : angry ? 0.35 : 0);
-  // brows
-  ctx.strokeStyle = face === 'blonde' ? '#b08840' : '#3a2616'; ctx.lineWidth = 5; ctx.lineCap = 'round';
-  ctx.beginPath();
-  if (angry) { ctx.moveTo(cx - 40, cy - 18); ctx.lineTo(cx - 12, cy - 12); ctx.moveTo(cx + 40, cy - 18); ctx.lineTo(cx + 12, cy - 12); }
-  else if (face === 'surprised') { ctx.moveTo(cx - 40, cy - 20); ctx.quadraticCurveTo(cx - 26, cy - 30, cx - 12, cy - 21); ctx.moveTo(cx + 40, cy - 20); ctx.quadraticCurveTo(cx + 26, cy - 30, cx + 12, cy - 21); }
-  else { ctx.moveTo(cx - 40, cy - 14); ctx.quadraticCurveTo(cx - 26, cy - 21, cx - 12, cy - 15); ctx.moveTo(cx + 40, cy - 14); ctx.quadraticCurveTo(cx + 26, cy - 21, cx + 12, cy - 15); }
-  ctx.stroke();
-  // mouth
-  ctx.strokeStyle = '#7a3a32'; ctx.fillStyle = '#6a2a26'; ctx.lineWidth = 3.5;
-  const my = cy + 52;
-  ctx.beginPath();
-  if (face === 'smile' || face === 'freckles' || face === 'blue') { ctx.moveTo(cx - 18, my - 4); ctx.quadraticCurveTo(cx, my + 12, cx + 18, my - 4); ctx.stroke(); }
-  else if (face === 'surprised') { ctx.ellipse(cx, my, 7, 9, 0, 0, 7); ctx.fill(); }
-  else if (angry) { ctx.moveTo(cx - 16, my + 3); ctx.quadraticCurveTo(cx, my - 4, cx + 16, my + 3); ctx.stroke(); }
-  else { ctx.moveTo(cx - 15, my); ctx.lineTo(cx + 15, my); ctx.stroke(); }
-  if (face === 'freckles') { ctx.fillStyle = s(0.7); for (let i = 0; i < 26; i++) { ctx.beginPath(); ctx.arc(cx + (Math.random() - 0.5) * 90, cy + 18 + Math.random() * 18, 1.6, 0, 7); ctx.fill(); } }
-  if (face === 'beard' || face === 'stubble') {
-    ctx.fillStyle = face === 'beard' ? 'rgba(45,30,18,0.92)' : 'rgba(40,30,20,0.35)';
-    ctx.beginPath(); ctx.moveTo(cx - 56, cy + 10); ctx.quadraticCurveTo(cx - 50, cy + 95, cx, cy + 96); ctx.quadraticCurveTo(cx + 50, cy + 95, cx + 56, cy + 10);
-    ctx.lineTo(cx + 40, cy + 40); ctx.quadraticCurveTo(cx, cy + 30, cx - 40, cy + 40); ctx.fill();
-    if (face === 'beard') { ctx.fillStyle = '#7a3a32'; ctx.fillRect(cx - 12, my - 1, 24, 4); }
-  }
-  if (face === 'glasses') {
-    ctx.strokeStyle = '#151515'; ctx.lineWidth = 4;
-    ctx.strokeRect(cx - 44, cy - 12, 34, 24); ctx.strokeRect(cx + 10, cy - 12, 34, 24);
-    ctx.beginPath(); ctx.moveTo(cx - 10, cy - 4); ctx.lineTo(cx + 10, cy - 4); ctx.moveTo(cx - 44, cy - 6); ctx.lineTo(cx - 64, cy - 8); ctx.moveTo(cx + 44, cy - 6); ctx.lineTo(cx + 64, cy - 8); ctx.stroke();
-  }
-  ctx.restore();
-  const t = tex(c, false);
-  faceCache.set(key, t);
-  return t;
-}
-export const FACES = ['smile', 'neutral', 'serious', 'surprised', 'tired', 'glasses', 'beard', 'stubble', 'freckles', 'blue'];
-
-// ======================================================================
 export function makeTextures(renderer, quality = 'medium') {
   RENDERER = renderer;
   const S = quality === 'low' ? 256 : 512;
@@ -503,8 +454,9 @@ export function makeTextures(renderer, quality = 'medium') {
   T.metal = tex(metal(128));
   T.barrel = tex(barrel(256));
   T.shirt = {};
-  for (const s of ['tshirt', 'longsleeve', 'polo', 'buttonup', 'hoodie', 'jacket', 'tank']) T.shirt[s] = shirtTex(s);
+  for (const s of ['tshirt', 'dressshirt', 'sweater']) T.shirt[s] = shirtTex(s);
   T.sleeve = sleeveTex();
+  T.sleeveKnit = knitSleeveTex();
   T.pants = {}; T.hips = {};
   for (const p of ['jeans', 'slacks', 'cargo', 'shorts', 'sweats']) { T.pants[p] = pantsTex(p); T.hips[p] = hipsTex(p); }
 

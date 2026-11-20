@@ -5,14 +5,14 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { CONFIG } from './config.js';
 import { store, makeCode, clamp } from './util.js';
-import { makeTextures, FACES } from './textures.js';
+import { makeTextures } from './textures.js';
 import { GameMap } from './map.js';
 import { NavGrid } from './nav.js';
 import { Input, isTouchDevice } from './input.js';
 import { UI } from './ui.js';
 import { Audio } from './audio.js';
 import { Game } from './game.js';
-import { CharacterModel, DEFAULT_LOOK, randomLook, sanitizeLook } from './character.js';
+import { CharacterModel, DEFAULT_LOOK, randomLook, sanitizeLook, FACES, WHITE_SKIN } from './character.js';
 import { NetHost, NetClient, probePublicServers, publicId, privateId, netAvailable, LOCAL_MODE } from './net.js';
 
 const $ = (id) => document.getElementById(id);
@@ -25,7 +25,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const touch = isTouchDevice();
 const DEFAULTS = {
   name: 'Player' + Math.floor(Math.random() * 900 + 100),
-  look: randomLook(),
+  look: { ...DEFAULT_LOOK },
   touchSens: CONFIG.CONTROLS.TOUCH_SENS * 1000, mouseSens: CONFIG.CONTROLS.MOUSE_SENS * 1000,
   invert: false, autoSprint: true, lefty: false, btnScale: 1,
   fov: CONFIG.GRAPHICS.FOV, camDist: 0, viewBob: true, shake: true,
@@ -35,6 +35,8 @@ const DEFAULTS = {
 };
 const settings = { ...DEFAULTS, ...store.get('killermystery-settings', {}) };
 settings.look = sanitizeLook(settings.look);
+// v3: everyone starts with the white skin tone (you can still change it in the editor)
+if (!settings.lookV3) { settings.look.skin = WHITE_SKIN; settings.lookV3 = true; store.set('killermystery-settings', settings); }
 const saveSettings = () => store.set('killermystery-settings', settings);
 const pct = (v) => `${Math.round(v * 100)}%`;
 const SCHEMA = [
@@ -228,7 +230,7 @@ const ED = [
   { key: 'pants', label: 'Pants', list: L.PANTS },
   { key: 'pantsColor', label: 'Pants color', colors: L.PANTS_COLORS },
 ];
-const NICE = { tshirt: 'T-shirt', longsleeve: 'Long sleeve', buttonup: 'Button-up', sidepart: 'Side part' };
+const NICE = { tshirt: 'T-shirt', dressshirt: 'Dress shirt', sweater: 'Sweater', sidepart: 'Side part' };
 function buildEditor() {
   const body = $('editor-body');
   body.innerHTML = '';
@@ -276,7 +278,7 @@ window.addEventListener('pointermove', (e) => { if (dragX !== null && preview) {
 window.addEventListener('pointerup', () => { dragX = null; });
 $('btn-editor').onclick = () => { buildEditor(); ui.show('editor'); ui.current = 'editor'; makePreview(); };
 $('btn-editor-done').onclick = () => { ui.show('menu'); ui.current = 'menu'; if (preview) preview.model.setVisible(false); };
-$('btn-editor-random').onclick = () => { settings.look = randomLook(); lookChanged(); };
+$('btn-editor-random').onclick = () => { settings.look = { ...randomLook(), skin: settings.look.skin }; lookChanged(); };
 const nameInput = $('name-input');
 nameInput.value = settings.name;
 const onName = () => {

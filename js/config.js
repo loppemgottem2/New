@@ -51,6 +51,7 @@ export const CONFIG = {
     KNIFE_RANGE: 2.1,           // meters
     KNIFE_ANGLE_DEG: 55,        // half-angle of the stab cone
     KNIFE_COOLDOWN: 0.85,       // seconds between stabs
+    KNIFE_SLASH_WINDOW: 0.35,   // after you swing, anyone who comes into the slash during this time still gets hit
     KNIFE_THROW_SPEED: 24,      // m/s
     KNIFE_THROW_COOLDOWN: 1.2,
     KNIFE_PICKUP_RADIUS: 1.2,
@@ -129,9 +130,10 @@ export const CONFIG = {
   // Character customization choices (character editor)
   LOOKS: {
     HAIR: ['short', 'buzz', 'sidepart', 'long', 'ponytail', 'bun', 'mohawk', 'spiky', 'afro', 'cap', 'beanie', 'bald'],
-    SHIRTS: ['tshirt', 'longsleeve', 'polo', 'buttonup', 'hoodie', 'jacket', 'tank'],
+    SHIRTS: ['tshirt', 'dressshirt', 'sweater'],
     PANTS: ['jeans', 'slacks', 'cargo', 'shorts', 'sweats'],
-    SKINS: [0xf3d7bf, 0xe8c4a0, 0xd9a77e, 0xc08a5e, 0x8d5a3b, 0x5e3a24],
+    SKINS: [0xf7e3d4, 0xf0d2bd, 0xe5bf9f, 0xd2a07c, 0xb07b55, 0x7d5034, 0x523222], // first one = default (white)
+    FACES: ['smile', 'happy', 'neutral', 'sad', 'angry', 'surprised', 'sleepy'],
     HAIR_COLORS: [0x1a1410, 0x3b2716, 0x6b4a2b, 0xa0763c, 0xd8b26a, 0x8c2f1c, 0x9a9a9a, 0x2b4fa8],
     PANTS_COLORS: [0x2c3e66, 0x22242a, 0x4a4033, 0x5b6b4a, 0x777a80, 0x1d2f4a, 0x8a7a5a],
     SHIRT_COLORS: [0xc23b3b, 0x2f6fd8, 0x2fa84a, 0xe0c020, 0x9b40d0, 0xf0f0f0, 0x303030, 0xe07a20],

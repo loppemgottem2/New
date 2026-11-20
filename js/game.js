@@ -278,7 +278,14 @@ export class Game {
       this.startRound();
     }
 
-    for (const c of this.chars.values()) if (c.attackCd > 0) c.attackCd -= dt;
+    for (const c of this.chars.values()) {
+      if (c.attackCd > 0) c.attackCd -= dt;
+      // live knife slash: keep checking for a short moment after the swing
+      if (c.slashT > 0) {
+        c.slashT -= dt;
+        if (c.alive && weaponOf(c) === 1 && this.phase === 'play') this.knifeHitCheck(c); else c.slashT = 0;
+      }
+    }
 
     // Bots think + move
     updateBots(this, dt);
@@ -420,9 +427,16 @@ export class Game {
     }
   }
 
+  // A stab is a slash that stays "live" for a short moment (KNIFE_SLASH_WINDOW):
+  // if you swing a bit early and turn onto someone right after, it still hits.
   knifeAttack(c) {
     c.attackCd = W.KNIFE_COOLDOWN;
+    c.slashT = W.KNIFE_SLASH_WINDOW;
     this.emit({ e: 'swing', id: c.id });
+    this.knifeHitCheck(c);
+  }
+
+  knifeHitCheck(c) {
     const fx = forwardX(c.yaw), fz = forwardZ(c.yaw);
     const cosA = Math.cos(W.KNIFE_ANGLE_DEG * DEG);
     let best = null, bd = Infinity;
@@ -436,6 +450,7 @@ export class Game {
       if (d < bd) { bd = d; best = o; }
     }
     if (best) {
+      c.slashT = 0;
       const d = Math.hypot(best.x - c.x, best.z - c.z) || 1;
       this.kill(best, c, 'knife', { x: ((best.x - c.x) / d) * 3, y: 0.5, z: ((best.z - c.z) / d) * 3 });
     }
