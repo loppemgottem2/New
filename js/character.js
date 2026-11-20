@@ -407,10 +407,10 @@ export class CharacterModel {
     // in the air the arms stop swinging and just bend (elbows up, hands in front)
     const inAir = !s.onGround;
     const armSw = inAir ? 0 : Math.sin(ph) * amp * 0.9;
-    const elbowBend = inAir ? 1.5 : 0.25 + runAmt * 0.9;
+    const elbowBend = inAir ? 1.75 : 0.25 + runAmt * 0.9;
     // left arm goes the opposite way (swung back) and is bent more
-    this.armL.sh.rotation.set(inAir ? -1.05 : -armSw * 0.9, 0, inAir ? -0.18 : -0.1);   // far back
-    this.armL.el.rotation.x = inAir ? 1.95 : elbowBend;
+    this.armL.sh.rotation.set(inAir ? -1.55 : -armSw * 0.9, 0, inAir ? -0.2 : -0.1);    // swung all the way back
+    this.armL.el.rotation.x = inAir ? 2.2 : elbowBend;
 
     if (this.swingT > 0) this.swingT -= dt;
     if (this.recoilT > 0) this.recoilT -= dt;
@@ -426,7 +426,7 @@ export class CharacterModel {
       this.armR.sh.rotation.set(0.9 + k * 1.4 + s.pitch * 0.5, 0, 0.1 - k * 0.3);
       this.armR.el.rotation.x = 0.9 - k * 0.8;
     } else {
-      this.armR.sh.rotation.set(inAir ? 1.05 : armSw * 0.9, 0, inAir ? 0.18 : 0.1);      // far forward
+      this.armR.sh.rotation.set(inAir ? 1.75 : armSw * 0.9, 0, inAir ? 0.2 : 0.1);       // thrown up and forward
       this.armR.el.rotation.x = elbowBend;
     }
   }
