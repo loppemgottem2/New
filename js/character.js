@@ -426,7 +426,7 @@ export class CharacterModel {
       this.armR.sh.rotation.set(0.9 + k * 1.4 + s.pitch * 0.5, 0, 0.1 - k * 0.3);
       this.armR.el.rotation.x = 0.9 - k * 0.8;
     } else {
-      this.armR.sh.rotation.set(inAir ? 1.05 : armSw * 0.9, 0, inAir ? 0.2 : 0.1);       // forward, angled a bit down
+      this.armR.sh.rotation.set(inAir ? 0.7 : armSw * 0.9, 0, inAir ? 0.2 : 0.1);        // forward, angled down
       this.armR.el.rotation.x = elbowBend;
     }
   }
