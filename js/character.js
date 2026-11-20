@@ -419,8 +419,9 @@ export class CharacterModel {
       const rec = this.recoilT > 0 ? this.recoilT * 2.5 : 0;
       // both hands on the revolver: right hand on the grip, left hand cupped under it
       // gun held in front of the chest (centered) so both hands can reach it
-      this.armR.sh.rotation.set(Math.PI / 2 + s.pitch * 0.9 + rec, 0, -0.3);
-      this.armR.el.rotation.x = 0.35;
+      // upper arm angled down by the same amount the elbow bends up, so the barrel points straight at the aim
+      this.armR.sh.rotation.set(Math.PI / 2 + s.pitch * 0.9 + rec - 0.6, 0, -0.42);
+      this.armR.el.rotation.x = 0.6;
       // left hand reaches over to the revolver grip (2-bone IK)
       this.leftHandToGrip();
     } else if (s.weapon === 1) {
@@ -437,10 +438,10 @@ export class CharacterModel {
   leftHandToGrip() {
     const V3 = THREE.Vector3;
     this.root.updateMatrixWorld(true);
-    // a spot just left of / under the grip, in the right hand's own space (+z = down along the grip)
-    const T = this.torso.joint.worldToLocal(this.armR.hand.localToWorld(new V3(-0.055, 0.0, 0.045)));
+    // on the grip itself, just below the right hand (in the right hand's own space, +z = down along the grip)
+    const T = this.torso.joint.worldToLocal(this.armR.hand.localToWorld(new V3(-0.012, 0.0, 0.06)));
     const S = this.armL.sh.position.clone();
-    const L1 = 0.29, L2 = 0.31; // forearm + half the hand
+    const L1 = 0.29, L2 = 0.29; // shoulder->elbow, elbow->hand (same as the model)
     const toT = T.clone().sub(S);
     const dist = Math.min(toT.length(), L1 + L2 - 0.002);
     const dir = toT.normalize();
@@ -509,8 +510,8 @@ export class ViewModel {
     const sFore = new THREE.Mesh(g.foreArm, this.skin); sFore.rotation.x = Math.PI / 2; sFore.position.z = 0.375; sFore.scale.set(1.15, 1.5, 1.15);
     const sHand = new THREE.Mesh(g.hand, this.skin); sHand.rotation.x = Math.PI / 2; sHand.position.set(0, -0.01, 0.31); sHand.scale.set(1.3, 1.05, 1.3);
     this.support.add(sFore, sHand);
-    this.support.position.set(-0.03, -0.035, 0.012);
-    this.support.rotation.set(0.1, -0.45, 0.25);
+    this.support.position.set(-0.012, -0.055, 0.0);   // wrapped around the grip, just under the right hand
+    this.support.rotation.set(0.1, -0.35, 0.2);
     this.supportFore = sFore;
     this.arm.add(this.support);
     this.swingT = 0; this.recoilT = 0; this.bob = 0; this.throwT = 0;
