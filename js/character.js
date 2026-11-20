@@ -161,12 +161,14 @@ function hairMeshes(style, hairMat) {
       cap(0.167, 0.42, 0.28);
       add(new THREE.CapsuleGeometry(0.03, 0.12, 3, 6), 0.035, 0.285, -0.115, 0.3, 0, 1.2, 1, 1, 0.9);
       break;
-    case 'long':
-      cap(0.168, 0.46, 0.3);
-      add(new THREE.CapsuleGeometry(0.12, 0.16, 4, 10), 0, 0.08, 0.075, 0.1, 0, 0, 1.12, 1, 0.55);
-      add(new THREE.BoxGeometry(0.035, 0.2, 0.09), -0.135, 0.08, 0.0, 0, 0, 0.08);
-      add(new THREE.BoxGeometry(0.035, 0.2, 0.09), 0.135, 0.08, 0.0, 0, 0, -0.08);
+    case 'long': {
+      // every piece is bigger than the head in all directions, so nothing pokes through the face/skin
+      cap(0.168, 0.46, 0.3);                                                                     // top + fringe line
+      add(new THREE.SphereGeometry(0.17, 20, 12, 0, Math.PI, 0, Math.PI * 0.78), 0, 0.15, 0, 0, 0, 0, 0.95, 1.1, 1.03); // back half shell
+      const curtain = new THREE.CylinderGeometry(0.165, 0.15, 0.2, 20, 1, true, -1.35, 2.7);  // hair hanging down the back
+      add(curtain, 0, 0.055, 0.008, 0.06, 0, 0, 1, 1, 1, hairMat).material.side = THREE.DoubleSide;
       break;
+    }
     case 'ponytail':
       cap(0.167, 0.44, 0.32);
       add(new THREE.SphereGeometry(0.035, 8, 6), 0, 0.2, 0.165);

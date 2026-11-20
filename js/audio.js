@@ -113,7 +113,7 @@ export const Audio = {
         this._noise(d, 0.09, 380 * vary, 0.7, 'lowpass', g * 0.8);
         this._tone(d, 65 * vary, 0.08, g * 0.35, 'sine');
         break;
-      case 'wood': case 'dirty':
+      case 'wood':
         // hollow boards: low knock + a little creak
         this._tone(d, 160 * vary, 0.1, g * 0.7, 'triangle', 0, 95);
         this._noise(d, 0.07, 900 * vary, 1.6, 'bandpass', g * 0.55);

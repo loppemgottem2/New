@@ -628,4 +628,4 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // debug handle (open the browser console and type GMM)
-window.GMM = { get game() { return game; }, get map() { return map; }, get nav() { return nav; }, CONFIG, startGame, settings, applyAll };
+window.GMM = { get game() { return game; }, get map() { return map; }, get nav() { return nav; }, scene, CONFIG, startGame, settings, applyAll };

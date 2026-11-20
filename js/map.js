@@ -4,7 +4,7 @@
 //  Each character = one CELL (2 x 2 meters).
 //   FLOORS   .  tile (indoor)      ,  wood (indoor)     ;  carpet (indoor)
 //            _  concrete (indoor)  o  grass (outdoor)   a  asphalt (outdoor)
-//            ~  dirty / trashed floor (indoor: grime, graffiti walls, broken lights)
+//            ~  trashed room floor (normal tile look, plus graffiti tags and a few dirt / trash spots)
 //   SOLID    #  wall (6 m)         P  pillar            Q  tall shelf (2.2 m)
 //            W  counter / desk (1 m, you can jump on it)
 //   PROPS (movable physics objects)
@@ -182,8 +182,7 @@ export class GameMap {
     this.lights = [];
     for (let z = 0; z < this.h; z++) for (let x = 0; x < this.w; x++) {
       const i = z * this.w + x;
-      const broken = FLOOR_LIST[this.floor[i]] === 'dirty' && hash2(x, z) < 0.55;
-      if (x % 3 === 1 && z % 3 === 1 && !this.outdoor[i] && this.heights[i] < WALL_H && !broken) {
+      if (x % 3 === 1 && z % 3 === 1 && !this.outdoor[i] && this.heights[i] < WALL_H) {
         this.lights.push({ x: (x + 0.5) * CELL, y: CEIL_H - 0.1, z: (z + 0.5) * CELL });
       }
     }
@@ -316,7 +315,7 @@ export class GameMap {
   dirtAt(px, py, pz, isWall, nx = 0, nz = 0) {
     const u = px / this.worldW, v = pz / this.worldD;
     let d = 1 - Math.max(0, fbm(u, v, 12, 3, 901) - 0.5) * 0.7;
-    if (this.floorTypeAt(px + nx * 0.4, pz + nz * 0.4) === 'dirty') d *= 0.8 + fbm(u * 3, v * 3 + py * 0.05, 16, 3, 903) * 0.2;
+    if (isWall && this.floorTypeAt(px + nx * 0.4, pz + nz * 0.4) === 'dirty') d *= 0.85 + fbm(u * 3, v * 3 + py * 0.05, 16, 3, 903) * 0.15;
     if (isWall) {
       const s = fbm(u + v, py / 24, 16, 3, 902);
       d *= 1 - (1 - Math.min(1, py / 1.6)) * 0.28 * s * 2;     // grime near the floor
@@ -375,7 +374,7 @@ export class GameMap {
       if (!builders.has(key)) builders.set(key, { b: new Builder(this), map });
       return builders.get(key).b;
     };
-    const floorTex = { tile: T.floorTile, wood: T.floorWood, carpet: T.floorCarpet, concrete: T.floorConcrete, grass: T.grass, asphalt: T.asphalt, dirty: T.floorDirty };
+    const floorTex = { tile: T.floorTile, wood: T.floorWood, carpet: T.floorCarpet, concrete: T.floorConcrete, grass: T.grass, asphalt: T.asphalt, dirty: T.floorTile };
     const W = this.w, H = this.h;
     const idx = (x, z) => z * W + x;
     const trimRoof = [];
@@ -501,6 +500,20 @@ export class GameMap {
       b.decal([mx - ux * w + dx * off, mz - uz * w + dz * off], [mx + ux * w + dx * off, mz + uz * w + dz * off], y0, y1, dx, dz);
     });
 
+    // ---- floor dirt / trash decals: only a few spots, next to the furniture in the trashed room ----
+    {
+      const spots = this.propSpawns.filter((p) => this.floorTypeAt(p.x, p.z) === 'dirty' && ['mattress', 'trashcan', 'table', 'takeout'].includes(p.type));
+      const used = [];
+      spots.forEach((p, i) => {
+        if (hash2(i * 7 + 3, 41) > 0.6) return;
+        if (used.some((u) => Math.hypot(u[0] - p.x, u[1] - p.z) < 2.2)) return; // not piled on top of each other
+        used.push([p.x, p.z]);
+        const k = Math.floor(hash2(i, 17) * T.floorDecals.length);
+        const size = 1.3 + hash2(i, 23) * 0.9;
+        B('floordecal-' + k, T.floorDecals[k]).floorDecal(p.x + (hash2(i, 5) - 0.5) * 0.8, p.z + (hash2(i, 6) - 0.5) * 0.8, size, hash2(i, 9) * 6.28);
+      });
+    }
+
     // ---- light fixtures ----
     {
       const fx = B('fixture', null);
@@ -514,7 +527,7 @@ export class GameMap {
     }
 
     for (const [key, { b, map }] of builders) {
-      const decal = key.startsWith('graffiti');
+      const decal = key.startsWith('graffiti') || key.startsWith('floordecal');
       const mat = new THREE.MeshBasicMaterial({ map, vertexColors: true, side: key === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide,
         transparent: decal, depthWrite: !decal, polygonOffset: decal, polygonOffsetFactor: -2 });
       const mesh = new THREE.Mesh(b.geometry(), mat);
@@ -576,6 +589,18 @@ class Builder {
     for (const [p, y, u, v] of [[a, y0, 0, 0], [c, y0, 1, 0], [c, y1, 1, 1], [a, y1, 0, 1]]) {
       this.pos.push(p[0], y, p[1]); this.nor.push(nx, 0, nz); this.uv.push(u, v);
       const col = this.map.bakeColor(p[0] - nx * 0.05, y, p[1] - nz * 0.05, nx, 0, nz, true);
+      this.col.push(col[0], col[1], col[2]);
+    }
+    this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  // flat picture lying on the floor (dirt / trash decals), uv 0..1
+  floorDecal(cx, cz, size, rot) {
+    const base = this.pos.length / 3, h = size / 2, c = Math.cos(rot), s = Math.sin(rot);
+    for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+      const lx = (u - 0.5) * size, lz = (0.5 - v) * size;
+      const x = cx + lx * c - lz * s, z = cz + lx * s + lz * c;
+      this.pos.push(x, 0.006, z); this.nor.push(0, 1, 0); this.uv.push(u, v);
+      const col = this.map.bakeColor(x, 0, z, 0, 1, 0, false);
       this.col.push(col[0], col[1], col[2]);
     }
     this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);

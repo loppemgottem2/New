@@ -347,6 +347,44 @@ function graffitiDecal(seed) {
   return t;
 }
 
+// Dirt / trash spot for floors (transparent): stains, spills, paper scraps, butts, crumbs
+function floorDecal(seed) {
+  const S = 256; const [c, ctx] = canvas(S);
+  const R = (k) => hash(seed, k, 470);
+  // grimy stains (soft blobs that fade out at the edges)
+  for (let i = 0; i < 6; i++) {
+    const x = S * (0.25 + R(i) * 0.5), y = S * (0.25 + R(i + 20) * 0.5), r = 30 + R(i + 40) * 55;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const a = 0.45 + R(i + 60) * 0.3, tone = seed % 2 ? '38,26,14' : '52,42,22';
+    g.addColorStop(0, `rgba(${tone},${a})`); g.addColorStop(0.7, `rgba(${tone},${a * 0.5})`); g.addColorStop(1, `rgba(${tone},0)`);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y, r, r * (0.6 + R(i + 80) * 0.4), R(i + 90) * 3, 0, 7); ctx.fill();
+  }
+  if (seed % 3 === 0) { // a dried spill with a darker rim
+    ctx.fillStyle = 'rgba(90,60,20,0.35)'; ctx.beginPath(); ctx.ellipse(S * 0.55, S * 0.5, 50, 30, 0.4, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(60,35,10,0.45)'; ctx.lineWidth = 3; ctx.stroke();
+  }
+  // paper scraps, napkins, wrappers
+  for (let i = 0; i < 11; i++) {
+    const x = S * (0.2 + R(i + 100) * 0.6), y = S * (0.2 + R(i + 120) * 0.6);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(R(i + 140) * 6.28);
+    ctx.fillStyle = R(i + 160) < 0.6 ? 'rgba(235,230,215,0.95)' : `hsla(${Math.floor(R(i + 180) * 360)},60%,45%,0.9)`;
+    const w = 14 + R(i + 200) * 22, h = 10 + R(i + 220) * 14;
+    ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2 + 2); ctx.lineTo(w / 2 - 2, h / 2); ctx.lineTo(-w / 2 + 1, h / 2 - 1); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  // cigarette butts, bottle caps, crumbs
+  for (let i = 0; i < 14; i++) {
+    const x = S * (0.15 + R(i + 300) * 0.7), y = S * (0.15 + R(i + 320) * 0.7);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(R(i + 340) * 6.28);
+    if (i % 3 === 0) { ctx.fillStyle = '#e8e0cc'; ctx.fillRect(-5, -1.5, 8, 3); ctx.fillStyle = '#c87a2a'; ctx.fillRect(3, -1.5, 3, 3); }
+    else if (i % 3 === 1) { ctx.fillStyle = '#b8a040'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill(); }
+    else { ctx.fillStyle = 'rgba(120,80,40,0.8)'; for (let k = 0; k < 6; k++) ctx.fillRect(R(i * 9 + k) * 14 - 7, R(i * 9 + k + 50) * 14 - 7, 2, 2); }
+    ctx.restore();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 // Library shelves: rows of books
 function shelfBooks(S) {
   const [c, ctx] = canvas(S);
@@ -595,6 +633,7 @@ export function makeTextures(renderer, quality = 'medium') {
   T.pillar = tex(pillar(256));
   T.floorDirty = tex(floorDirty(S));
   T.graffiti = [0, 1, 2, 3, 4].map((i) => graffitiDecal(i + 1));
+  T.floorDecals = [0, 1, 2, 3].map((i) => floorDecal(i + 1));
   T.shelfBooks = tex(shelfBooks(256));
   T.takeout = tex(takeoutTex(128));
   T.roof = tex(roof(256));
