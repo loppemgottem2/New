@@ -485,6 +485,8 @@ export class CharacterModel {
   }
 }
 
+const KNIFE_REST = Math.PI / 2 - 0.3; // first-person knife: upright, leaning slightly forward
+
 // First-person arm + weapon attached to the camera
 export class ViewModel {
   constructor(camera, textures) {
@@ -502,7 +504,7 @@ export class ViewModel {
     this.hand = new THREE.Mesh(g.hand, this.skin); this.hand.rotation.x = Math.PI / 2; this.hand.position.set(0, -0.01, 0.31); this.hand.scale.set(1.3, 1.05, 1.3);
     this.arm.add(this.fore, this.hand);
     // knife upright in the fist, leaning slightly forward
-    this.knife = makeKnifeMesh(); this.knife.scale.setScalar(1.3); this.knife.rotation.x = Math.PI / 2 - 0.3; this.knife.position.set(0, 0.0, 0.0);
+    this.knife = makeKnifeMesh(); this.knife.scale.setScalar(1.3); this.knife.rotation.x = KNIFE_REST; this.knife.position.set(0, 0.0, 0.0);
     // revolver held by the grip (bigger), with the left hand supporting it
     this.gun = makeGunMesh(); this.gun.scale.setScalar(1.55); this.gun.position.set(0, -0.005, 0.0);
     this.arm.add(this.knife, this.gun);
@@ -543,10 +545,18 @@ export class ViewModel {
     this.arm.rotation.set(0, 0, 0);
     if (this.swingT > 0) {
       this.swingT -= dt;
-      const k = Math.sin((1 - this.swingT / 0.35) * Math.PI);
-      this.arm.position.x -= k * 0.16; this.arm.position.z -= k * 0.18; this.arm.position.y += k * 0.04;
-      this.arm.rotation.y = k * 0.9; this.arm.rotation.x = -k * 0.3;
+      // same forward stab as the third-person animation: quick pull back, thrust forward
+      // (blade tips forward to point at the target), then ease back
+      const t = 1 - this.swingT / 0.35;
+      const k = t < 0.22 ? -(t / 0.22) * 0.3 : t < 0.5 ? -0.3 + ((t - 0.22) / 0.28) * 1.3 : 1 - (t - 0.5) / 0.5;
+      const e = k < 0 ? k : k * k * (3 - 2 * k);
+      this.arm.position.z -= e * 0.27;
+      this.arm.position.x -= Math.max(0, e) * 0.08;
+      this.arm.position.y += Math.abs(e) * 0.04;
+      this.arm.rotation.x = e * 0.12;                         // forearm dips a little as it extends
+      this.knife.rotation.x = KNIFE_REST - e * 0.8;           // blade tips forward to point at the target
     }
+    else this.knife.rotation.x = KNIFE_REST;
     if (this.recoilT > 0) {
       this.recoilT -= dt;
       const k = this.recoilT / 0.3;

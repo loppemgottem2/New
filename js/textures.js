@@ -180,16 +180,42 @@ function floorConcrete(S) {
   return c;
 }
 
+// Darker, natural grass: mixed green tones, thousands of blades, bare dirt patches with pebbles
 function grass(S) {
   const [c, ctx] = canvas(S);
+  const dirtAt = (u, v) => Math.max(0, (fbm(u, v, 3, 4, 62) - 0.58) * 4.5);   // 0 = grass, 1+ = bare soil
   paint(ctx, S, S, (u, v, x, y) => {
-    const n = fbm(u, v, 8, 4, 61);
-    const patch = fbm(u, v, 2, 3, 62);
-    const blade = hash(x, Math.floor(y / 3), 63);
-    let r = 62 + n * 30 + blade * 20, g = 104 + n * 50 + blade * 30, b = 40 + n * 14;
-    if (patch > 0.64) { const k = (patch - 0.64) * 3; r += (120 - r) * k; g += (98 - g) * k; b += (66 - b) * k; } // dirt patches
+    const n = fbm(u, v, 8, 4, 61), m = fbm(u, v, 24, 2, 63);
+    let r = 26 + n * 18 + m * 8, g = 45 + n * 28 + m * 12, b = 17 + n * 8;             // dark grass base
+    const d = Math.min(1, dirtAt(u, v));
+    if (d > 0) {                                                                        // soil
+      const sn = fbm(u, v, 32, 3, 64), pebble = hash(x, y, 65) > 0.985 ? 30 : 0;
+      const sr = 78 + sn * 34 + pebble, sg = 60 + sn * 26 + pebble, sb = 40 + sn * 18 + pebble;
+      r += (sr - r) * d; g += (sg - g) * d; b += (sb - b) * d;
+    }
     return [r, g, b];
   });
+  // grass blades (wrapped at the edges so the texture tiles)
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 9000; i++) {
+    const x = rnd() * S, y = rnd() * S;
+    if (dirtAt(x / S, y / S) > 0.7 && rnd() < 0.85) continue;      // only a few blades on the dirt
+    const len = 3 + rnd() * 7, a = -Math.PI / 2 + (rnd() - 0.5) * 1.1;
+    const t = rnd();
+    ctx.strokeStyle = t < 0.12 ? `rgba(${92 + rnd() * 26 | 0},${100 + rnd() * 22 | 0},50,0.7)`        // dry tips
+      : `rgba(${22 + t * 32 | 0},${48 + t * 46 | 0},${15 + t * 14 | 0},0.75)`;
+    ctx.lineWidth = 0.8 + rnd() * 0.9;
+    for (const ox of [0, -S, S]) for (const oy of [0, -S, S]) {
+      if ((ox && (x > 12 && x < S - 12)) || (oy && (y > 12 && y < S - 12))) continue;
+      ctx.beginPath(); ctx.moveTo(x + ox, y + oy); ctx.lineTo(x + ox + Math.cos(a) * len, y + oy + Math.sin(a) * len); ctx.stroke();
+    }
+  }
+  // a few small clover / weed clumps
+  for (let i = 0; i < 40; i++) {
+    const x = rnd() * S, y = rnd() * S;
+    ctx.fillStyle = `rgba(${40 + rnd() * 20 | 0},${85 + rnd() * 30 | 0},${30 + rnd() * 10 | 0},0.8)`;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x + Math.cos(k * 2.1) * 2.5, y + Math.sin(k * 2.1) * 2.5, 2.2, 0, 7); ctx.fill(); }
+  }
   return c;
 }
 
