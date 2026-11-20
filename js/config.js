@@ -40,7 +40,8 @@ export const CONFIG = {
     GRAVITY: 18,
     JUMP_SPEED: 6.4,        // jump apex = JUMP_SPEED^2 / (2*GRAVITY) ≈ 1.14 m
     JUMP_COOLDOWN: 0.4,     // seconds you must be back on the ground before you can jump again
-    STEP_HEIGHT: 0.4,       // only used for map/bot-path checks: there is NO auto step-up, you must jump onto things
+    STEP_HEIGHT: 0.4,       // only used for map/bot-path checks
+    WALK_STEP: 0.28,        // tiny auto step-up, ONLY while walking/running on the ground (enough for a mattress); none while jumping
     STAMINA_MAX: 100,
     STAMINA_DRAIN: 16,      // per second while sprinting
     STAMINA_REGEN: 11,      // per second while not sprinting
