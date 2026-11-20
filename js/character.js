@@ -408,8 +408,9 @@ export class CharacterModel {
     const inAir = !s.onGround;
     const armSw = inAir ? 0 : Math.sin(ph) * amp * 0.9;
     const elbowBend = inAir ? 1.35 : 0.25 + runAmt * 0.9;
-    this.armL.sh.rotation.set(inAir ? 0.35 : -armSw * 0.9, 0, inAir ? -0.22 : -0.1);
-    this.armL.el.rotation.x = elbowBend;
+    // left arm goes the opposite way (swung back) and is bent more
+    this.armL.sh.rotation.set(inAir ? -0.55 : -armSw * 0.9, 0, inAir ? -0.2 : -0.1);
+    this.armL.el.rotation.x = inAir ? 1.75 : elbowBend;
 
     if (this.swingT > 0) this.swingT -= dt;
     if (this.recoilT > 0) this.recoilT -= dt;
